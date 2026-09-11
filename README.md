@@ -5,16 +5,18 @@ shows the missing link when it is not.
 
 ## Status
 
-Rationale is in bootstrap development. The current repository establishes the
-Rust systems host, the OCaml proof-kernel boundary, and the governance needed to
-make its own development history inspectable. It does not yet evaluate
-repository evidence.
+Rationale now has its first cross-language proof slice. Rust can supervise the
+long-lived OCaml kernel and evaluate bounded synthetic evidence into canonical
+established, partial, not-established, or conflicted results. Repository
+ingestion, persistence, CLI, and MCP surfaces are still under development.
 
 ## Architecture
 
 - **Rust** owns repository ingestion, indexing, the CLI, and MCP.
 - **OCaml** owns the pure, deterministic proof kernel.
 - A versioned process protocol keeps the language boundary explicit.
+- Four-byte length-prefixed frames, deadlines, and bounded restart keep worker
+  failure observable without inventing a fallback verdict.
 - Rationale never calls a language model. An external agent may explain its
   structured results without changing their verdicts.
 
@@ -33,6 +35,11 @@ opam install --switch=rationale-5.5.1 ./ocaml \
   --deps-only --with-test --with-dev-setup --yes
 make verify
 ```
+
+During development, `make verify` builds the OCaml companion worker before the
+Rust cross-language tests. Installed builds discover `rationale-kernel-worker`
+beside the Rust executable. Set `RATIONALE_KERNEL_WORKER` to an explicit path
+when testing or packaging a different worker build.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the Story and commit conventions.
 

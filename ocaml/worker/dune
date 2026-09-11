@@ -1,0 +1,15 @@
+(library
+ (name rationale_worker_support)
+ (wrapped false)
+ (modules framing))
+
+(executable
+ (name main)
+ (public_name rationale-kernel-worker)
+ (modules main)
+ (libraries rationale_kernel rationale_worker_support yojson))
+
+(test
+ (name framing_test)
+ (modules framing_test)
+ (libraries alcotest rationale_worker_support))

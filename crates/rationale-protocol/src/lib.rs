@@ -4,6 +4,10 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use thiserror::Error;
 
+mod worker;
+
+pub use worker::{ProofUnavailable, ProofUnavailableReason, WorkerConfig, WorkerSupervisor};
+
 /// Failure to encode a protocol value as canonical JSON.
 #[derive(Debug, Error)]
 pub enum CanonicalJsonError {
