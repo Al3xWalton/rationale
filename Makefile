@@ -15,12 +15,12 @@ lint:
 
 test:
 	cargo test --workspace --all-features
-	opam exec --switch=$(OPAM_SWITCH) -- dune runtest --root ocaml
+	RATIONALE_FIXTURE_ROOT="$(CURDIR)/fixtures/protocol" opam exec --switch=$(OPAM_SWITCH) -- dune runtest --root ocaml
 
 verify:
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 	cargo test --workspace --all-features
 	opam exec --switch=$(OPAM_SWITCH) -- dune build --root ocaml @all
-	opam exec --switch=$(OPAM_SWITCH) -- dune runtest --root ocaml
+	RATIONALE_FIXTURE_ROOT="$(CURDIR)/fixtures/protocol" opam exec --switch=$(OPAM_SWITCH) -- dune runtest --root ocaml
 	git diff --check

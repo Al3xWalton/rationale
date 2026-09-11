@@ -1,17 +1,9 @@
-//! Shared domain types for Rationale.
-//!
-//! The crate begins with the protocol version so the Rust host and OCaml worker
-//! can establish an explicit compatibility boundary during bootstrap.
+//! Shared domain and protocol types for Rationale.
 
-/// First version of the Rust-to-OCaml proof protocol.
-pub const PROTOCOL_VERSION: u16 = 1;
+mod protocol;
 
-#[cfg(test)]
-mod tests {
-    use super::PROTOCOL_VERSION;
-
-    #[test]
-    fn protocol_version_starts_at_one() {
-        assert_eq!(PROTOCOL_VERSION, 1);
-    }
-}
+pub use protocol::{
+    Conflict, EdgeKind, ErrorCode, EvidenceEdge, EvidenceNode, Gap, GapCode, KernelRequest,
+    KernelResponse, NodeKind, Origin, PROTOCOL_VERSION, ProofChain, ProofGoal, ProofResult,
+    ProtocolError, RecordStatus, SourceKind, Verdict,
+};

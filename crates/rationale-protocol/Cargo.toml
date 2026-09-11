@@ -1,0 +1,20 @@
+[package]
+name = "rationale-protocol"
+description = "Canonical serialization for the Rationale proof protocol"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+rationale-model = { path = "../rationale-model" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true
+
+[lints]
+workspace = true

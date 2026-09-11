@@ -1,0 +1,9 @@
+{
+  "status": "error",
+  "protocol_version": 1,
+  "request_id": "request-invalid-1",
+  "error": {
+    "code": "unsupported_protocol",
+    "message": "protocol version 2 is unsupported"
+  }
+}

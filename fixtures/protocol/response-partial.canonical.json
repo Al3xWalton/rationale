@@ -1,0 +1,1 @@
+{"proof":{"conflicts":[],"gaps":[{"code":"work_item_to_decision","from_node_id":"work-item-1","to_kind":"decision"}],"proof_chains":[],"verdict":"partial"},"protocol_version":1,"request_id":"request-partial-1","snapshot_id":"snapshot-demo-1","status":"proof"}

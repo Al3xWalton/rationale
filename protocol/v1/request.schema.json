@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rationale.dev/protocol/v1/request.schema.json",
+  "title": "Rationale kernel request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol_version",
+    "request_id",
+    "snapshot_id",
+    "goal",
+    "nodes",
+    "edges",
+    "conflicts"
+  ],
+  "properties": {
+    "protocol_version": { "const": 1 },
+    "request_id": { "type": "string", "minLength": 1 },
+    "snapshot_id": { "type": "string", "minLength": 1 },
+    "goal": { "$ref": "#/$defs/goal" },
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/edge" }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/conflict" }
+    }
+  },
+  "$defs": {
+    "node_kind": {
+      "enum": [
+        "code_target",
+        "change",
+        "work_item",
+        "review",
+        "decision",
+        "verification"
+      ]
+    },
+    "edge_kind": {
+      "enum": [
+        "introduced_by",
+        "changed_by",
+        "included_in_pr",
+        "resolves_issue",
+        "documents",
+        "supersedes",
+        "verified_by"
+      ]
+    },
+    "record_status": {
+      "enum": ["current", "historical"]
+    },
+    "source_kind": {
+      "enum": ["git", "github", "document", "verification", "synthetic"]
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_kind", "locator"],
+      "properties": {
+        "source_kind": { "$ref": "#/$defs/source_kind" },
+        "locator": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "minLength": 1 },
+        "observed_at": { "type": "string", "minLength": 1 }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "status", "origin"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/node_kind" },
+        "status": { "$ref": "#/$defs/record_status" },
+        "subject_id": { "type": "string", "minLength": 1 },
+        "outcome_id": { "type": "string", "minLength": 1 },
+        "origin": { "$ref": "#/$defs/origin" }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "source_id", "target_id", "status", "origin"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "$ref": "#/$defs/edge_kind" },
+        "source_id": { "type": "string", "minLength": 1 },
+        "target_id": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/record_status" },
+        "origin": { "$ref": "#/$defs/origin" }
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left_node_id", "right_node_id", "rule_id"],
+      "properties": {
+        "left_node_id": { "type": "string", "minLength": 1 },
+        "right_node_id": { "type": "string", "minLength": 1 },
+        "rule_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_id", "anchor_kinds"],
+      "properties": {
+        "target_id": { "type": "string", "minLength": 1 },
+        "anchor_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/node_kind" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "status": "proof",
+  "protocol_version": 1,
+  "request_id": "request-established-1",
+  "snapshot_id": "snapshot-demo-1",
+  "proof": {
+    "verdict": "established",
+    "proof_chains": [
+      {
+        "node_ids": ["code-1", "change-1", "review-1", "work-item-1", "decision-1"],
+        "edge_ids": ["edge-introduced-1", "edge-included-1", "edge-resolves-1", "edge-documents-1"],
+        "rule_ids": ["edge.current", "path.admissible", "anchor.current"]
+      }
+    ],
+    "gaps": [],
+    "conflicts": []
+  }
+}

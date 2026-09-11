@@ -1,0 +1,18 @@
+{
+  "status": "proof",
+  "protocol_version": 1,
+  "request_id": "request-partial-1",
+  "snapshot_id": "snapshot-demo-1",
+  "proof": {
+    "verdict": "partial",
+    "proof_chains": [],
+    "gaps": [
+      {
+        "code": "work_item_to_decision",
+        "from_node_id": "work-item-1",
+        "to_kind": "decision"
+      }
+    ],
+    "conflicts": []
+  }
+}

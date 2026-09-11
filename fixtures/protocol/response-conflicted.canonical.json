@@ -1,0 +1,1 @@
+{"proof":{"conflicts":[{"left_node_id":"decision-local","right_node_id":"decision-remote","rule_id":"conflict.explicit"}],"gaps":[],"proof_chains":[],"verdict":"conflicted"},"protocol_version":1,"request_id":"request-conflicted-1","snapshot_id":"snapshot-demo-1","status":"proof"}

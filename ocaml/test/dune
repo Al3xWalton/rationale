@@ -1,3 +1,7 @@
 (test
  (name bootstrap_test)
  (libraries alcotest rationale_kernel))
+
+(test
+ (name protocol_test)
+ (libraries alcotest rationale_kernel yojson))

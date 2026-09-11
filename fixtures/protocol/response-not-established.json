@@ -1,0 +1,18 @@
+{
+  "status": "proof",
+  "protocol_version": 1,
+  "request_id": "request-not-established-1",
+  "snapshot_id": "snapshot-demo-1",
+  "proof": {
+    "verdict": "not_established",
+    "proof_chains": [],
+    "gaps": [
+      {
+        "code": "target_to_change",
+        "from_node_id": "code-1",
+        "to_kind": "change"
+      }
+    ],
+    "conflicts": []
+  }
+}

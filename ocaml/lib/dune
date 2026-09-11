@@ -1,3 +1,4 @@
 (library
  (name rationale_kernel)
- (public_name rationale-kernel))
+ (public_name rationale-kernel)
+ (libraries yojson))

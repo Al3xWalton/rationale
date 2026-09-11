@@ -1,0 +1,129 @@
+{
+  "protocol_version": 1,
+  "request_id": "request-established-1",
+  "snapshot_id": "snapshot-demo-1",
+  "goal": {
+    "target_id": "code-1",
+    "anchor_kinds": ["decision", "work_item"]
+  },
+  "nodes": [
+    {
+      "id": "change-1",
+      "kind": "change",
+      "status": "current",
+      "origin": {
+        "source_kind": "git",
+        "locator": "commit:1111111",
+        "revision": "1111111111111111111111111111111111111111"
+      }
+    },
+    {
+      "id": "code-1",
+      "kind": "code_target",
+      "status": "current",
+      "origin": {
+        "source_kind": "git",
+        "locator": "src/auth.rs:42",
+        "revision": "1111111111111111111111111111111111111111"
+      }
+    },
+    {
+      "id": "decision-1",
+      "kind": "decision",
+      "status": "current",
+      "subject_id": "authentication-mode",
+      "outcome_id": "local-token-validation",
+      "origin": {
+        "source_kind": "document",
+        "locator": "docs/decisions/ADR-0007.md"
+      }
+    },
+    {
+      "id": "review-1",
+      "kind": "review",
+      "status": "current",
+      "origin": {
+        "source_kind": "github",
+        "locator": "pull/17",
+        "observed_at": "2026-09-12T00:00:00Z"
+      }
+    },
+    {
+      "id": "verification-1",
+      "kind": "verification",
+      "status": "current",
+      "origin": {
+        "source_kind": "verification",
+        "locator": "verification/auth.toml"
+      }
+    },
+    {
+      "id": "work-item-1",
+      "kind": "work_item",
+      "status": "current",
+      "origin": {
+        "source_kind": "github",
+        "locator": "issues/12",
+        "observed_at": "2026-09-12T00:00:00Z"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-documents-1",
+      "kind": "documents",
+      "source_id": "work-item-1",
+      "target_id": "decision-1",
+      "status": "current",
+      "origin": {
+        "source_kind": "document",
+        "locator": "docs/decisions/ADR-0007.md#work-item"
+      }
+    },
+    {
+      "id": "edge-included-1",
+      "kind": "included_in_pr",
+      "source_id": "change-1",
+      "target_id": "review-1",
+      "status": "current",
+      "origin": {
+        "source_kind": "github",
+        "locator": "pull/17/commits"
+      }
+    },
+    {
+      "id": "edge-introduced-1",
+      "kind": "introduced_by",
+      "source_id": "code-1",
+      "target_id": "change-1",
+      "status": "current",
+      "origin": {
+        "source_kind": "git",
+        "locator": "blame:src/auth.rs:42"
+      }
+    },
+    {
+      "id": "edge-resolves-1",
+      "kind": "resolves_issue",
+      "source_id": "review-1",
+      "target_id": "work-item-1",
+      "status": "current",
+      "origin": {
+        "source_kind": "github",
+        "locator": "pull/17#closing-issues"
+      }
+    },
+    {
+      "id": "edge-verifies-1",
+      "kind": "verified_by",
+      "source_id": "decision-1",
+      "target_id": "verification-1",
+      "status": "current",
+      "origin": {
+        "source_kind": "verification",
+        "locator": "verification/auth.toml#ADR-0007"
+      }
+    }
+  ],
+  "conflicts": []
+}

@@ -3,4 +3,8 @@ let test_protocol_version () =
 
 let () =
   Alcotest.run "rationale-kernel"
-    [ ("bootstrap", [ Alcotest.test_case "protocol version" `Quick test_protocol_version ]) ]
+    [
+      ( "bootstrap",
+        [ Alcotest.test_case "protocol version" `Quick test_protocol_version ]
+      );
+    ]

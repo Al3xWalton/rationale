@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rationale.dev/protocol/v1/response.schema.json",
+  "title": "Rationale kernel response v1",
+  "oneOf": [
+    { "$ref": "#/$defs/proof_response" },
+    { "$ref": "#/$defs/error_response" }
+  ],
+  "$defs": {
+    "node_kind": {
+      "enum": [
+        "code_target",
+        "change",
+        "work_item",
+        "review",
+        "decision",
+        "verification"
+      ]
+    },
+    "verdict": {
+      "enum": ["established", "partial", "not_established", "conflicted"]
+    },
+    "gap_code": {
+      "enum": [
+        "target_to_change",
+        "change_to_review",
+        "change_to_work_item",
+        "work_item_to_decision",
+        "decision_to_verification",
+        "no_current_anchor"
+      ]
+    },
+    "error_code": {
+      "enum": [
+        "unsupported_protocol",
+        "invalid_request",
+        "missing_record",
+        "resource_limit",
+        "internal"
+      ]
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left_node_id", "right_node_id", "rule_id"],
+      "properties": {
+        "left_node_id": { "type": "string", "minLength": 1 },
+        "right_node_id": { "type": "string", "minLength": 1 },
+        "rule_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code"],
+      "properties": {
+        "code": { "$ref": "#/$defs/gap_code" },
+        "from_node_id": { "type": "string", "minLength": 1 },
+        "to_kind": { "$ref": "#/$defs/node_kind" }
+      }
+    },
+    "proof_chain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_ids", "edge_ids", "rule_ids"],
+      "properties": {
+        "node_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "edge_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "rule_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "proof_chains", "gaps", "conflicts"],
+      "properties": {
+        "verdict": { "$ref": "#/$defs/verdict" },
+        "proof_chains": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/proof_chain" }
+        },
+        "gaps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/gap" }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/conflict" }
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "$ref": "#/$defs/error_code" },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "proof_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "protocol_version", "request_id", "snapshot_id", "proof"],
+      "properties": {
+        "status": { "const": "proof" },
+        "protocol_version": { "const": 1 },
+        "request_id": { "type": "string", "minLength": 1 },
+        "snapshot_id": { "type": "string", "minLength": 1 },
+        "proof": { "$ref": "#/$defs/proof" }
+      }
+    },
+    "error_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "protocol_version", "request_id", "error"],
+      "properties": {
+        "status": { "const": "error" },
+        "protocol_version": { "const": 1 },
+        "request_id": { "type": "string", "minLength": 1 },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    }
+  }
+}
