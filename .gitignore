@@ -1,0 +1,5 @@
+.DS_Store
+.rationale/
+target/
+ocaml/_build/
+_opam/
