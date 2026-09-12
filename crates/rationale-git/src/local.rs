@@ -76,6 +76,24 @@ impl LocalGitResolver {
         }
     }
 
+    /// Resolve attribution required for a proof without walking path history.
+    ///
+    /// The returned line target preserves exact blame attribution and reports
+    /// history as incomplete because `changed_by` is intentionally deferred.
+    /// Call the full `GitResolver::resolve` only when presentation needs the
+    /// rename-aware change summaries.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same target, path, revision, and attribution failures as the
+    /// full resolver.
+    pub fn resolve_for_proof(
+        &self,
+        target: &TargetSpec,
+    ) -> Result<ResolvedTarget, GitEvidenceError> {
+        self.resolve_target(target, false)
+    }
+
     /// Read bounded topological commit history for local synchronization.
     ///
     /// # Errors
@@ -169,6 +187,7 @@ impl LocalGitResolver {
         start_line: usize,
         end_line: usize,
         revision: Option<&str>,
+        include_history: bool,
     ) -> Result<ResolvedTarget, GitEvidenceError> {
         let (relative, normalized) = normalize_path(path)?;
         ensure_within_root(&self.root, &relative, &normalized)?;
@@ -236,7 +255,11 @@ impl LocalGitResolver {
             &committed_blame
         };
         let introduced_by = attributions(blame, start_line, end_line, &normalized)?;
-        let (changed_by, history_complete) = self.path_history(commit.id(), &relative)?;
+        let (changed_by, history_complete) = if include_history {
+            self.path_history(commit.id(), &relative)?
+        } else {
+            (Vec::new(), false)
+        };
         Ok(ResolvedTarget::Lines {
             repository_root: self.root.clone(),
             path: normalized,
@@ -339,14 +362,12 @@ impl LocalGitResolver {
         }
         Ok((changes, complete))
     }
-}
 
-impl GitResolver for LocalGitResolver {
-    fn repository_root(&self) -> &Path {
-        &self.root
-    }
-
-    fn resolve(&self, target: &TargetSpec) -> Result<ResolvedTarget, GitEvidenceError> {
+    fn resolve_target(
+        &self,
+        target: &TargetSpec,
+        include_history: bool,
+    ) -> Result<ResolvedTarget, GitEvidenceError> {
         match target {
             TargetSpec::Commit { revision } => {
                 let commit = self.resolve_commit(revision)?;
@@ -360,8 +381,24 @@ impl GitResolver for LocalGitResolver {
                 start_line,
                 end_line,
                 revision,
-            } => self.resolve_lines(path, *start_line, *end_line, revision.as_deref()),
+            } => self.resolve_lines(
+                path,
+                *start_line,
+                *end_line,
+                revision.as_deref(),
+                include_history,
+            ),
         }
+    }
+}
+
+impl GitResolver for LocalGitResolver {
+    fn repository_root(&self) -> &Path {
+        &self.root
+    }
+
+    fn resolve(&self, target: &TargetSpec) -> Result<ResolvedTarget, GitEvidenceError> {
+        self.resolve_target(target, true)
     }
 }
 

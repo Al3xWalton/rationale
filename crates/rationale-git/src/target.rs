@@ -4,6 +4,8 @@ use crate::GitEvidenceError;
 
 /// Maximum UTF-8 byte length accepted by the public target syntax.
 pub const MAX_TARGET_BYTES: usize = 4_096;
+/// Maximum number of lines resolved by one target request.
+pub const MAX_TARGET_LINES: usize = 4_096;
 
 /// A repository target accepted by local Git resolution.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,6 +79,14 @@ impl FromStr for TargetSpec {
                 detail: "line range starts after it ends".to_owned(),
             });
         }
+        let range_length = end_line
+            .checked_sub(start_line)
+            .and_then(|length| length.checked_add(1));
+        if range_length.is_none_or(|length| length > MAX_TARGET_LINES) {
+            return Err(GitEvidenceError::InvalidTarget {
+                detail: format!("line range exceeds {MAX_TARGET_LINES} lines"),
+            });
+        }
         Ok(Self::Lines {
             path: PathBuf::from(path),
             start_line,
@@ -146,5 +156,12 @@ mod tests {
     fn rejects_oversized_targets_before_parsing_components() {
         let target = "x".repeat(super::MAX_TARGET_BYTES + 1);
         assert!(TargetSpec::from_str(&target).is_err());
+    }
+
+    #[test]
+    fn rejects_ranges_that_expand_beyond_the_line_limit() {
+        assert!(TargetSpec::from_str("src/lib.rs:1-4096").is_ok());
+        assert!(TargetSpec::from_str("src/lib.rs:1-4097").is_err());
+        assert!(TargetSpec::from_str("src/lib.rs:1-18446744073709551615").is_err());
     }
 }

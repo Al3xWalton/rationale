@@ -35,6 +35,7 @@ const MAX_DOCUMENT_BYTES: u64 = 1024 * 1024;
 const MAX_SCANNED_ENTRIES: usize = 100_000;
 const MAX_CANDIDATE_QUERY_BYTES: usize = 4_096;
 const MAX_RECORD_ID_BYTES: usize = 128;
+const MAX_CANDIDATE_HISTORY_SUMMARIES: usize = 32;
 
 /// Failure in local evidence orchestration.
 #[derive(Debug, Error)]
@@ -515,22 +516,24 @@ impl Engine {
     /// failures, or proof-worker unavailability.
     pub async fn why(&self, target: &str) -> Result<WhyResult, EngineError> {
         validate_input(target, "target", MAX_TARGET_BYTES)?;
-        let resolver = LocalGitResolver::discover(&self.root)?;
         let parsed = TargetSpec::from_str(target)?;
-        let target_evidence = resolver.resolve(&parsed)?;
+        let target_evidence = LocalGitResolver::discover(&self.root)?.resolve_for_proof(&parsed)?;
         if !self.database_path.is_file() {
             return Err(EngineError::NoSnapshot);
         }
+        let seed_ids = proof_seed_ids(&target_evidence);
         let mut store = EvidenceStore::open(&self.database_path)?;
         let slice = store
-            .load_current_slice(SliceLimits {
-                max_nodes: 4_000,
-                max_edges: 16_384,
-                max_conflicts: 4_096,
-            })?
+            .load_current_proof_slice(
+                &seed_ids,
+                SliceLimits {
+                    max_nodes: 4_000,
+                    max_edges: 16_384,
+                    max_conflicts: 4_096,
+                },
+            )?
             .ok_or(EngineError::NoSnapshot)?;
         let snapshot_id = slice.snapshot_id.clone();
-        let candidate_records = slice.nodes.clone();
         let mut nodes: BTreeMap<_, _> = slice
             .nodes
             .into_iter()
@@ -545,7 +548,7 @@ impl Engine {
         let request = KernelRequest {
             protocol_version: PROTOCOL_VERSION,
             request_id: query_id(&snapshot_id, target),
-            snapshot_id,
+            snapshot_id: snapshot_id.clone(),
             goal: ProofGoal {
                 target_id,
                 anchor_kinds: vec![NodeKind::Decision, NodeKind::WorkItem],
@@ -556,8 +559,16 @@ impl Engine {
         };
         let supervisor = self.proof_worker().await?;
         let response = supervisor.evaluate(request).await?;
+        let candidate_evidence;
+        let candidate_records = if proof_needs_candidates(&response) {
+            candidate_evidence = LocalGitResolver::discover(&self.root)?.resolve(&parsed)?;
+            EvidenceStore::open(&self.database_path)?.load_snapshot_records(&snapshot_id, 4_000)?
+        } else {
+            candidate_evidence = target_evidence.clone();
+            Vec::new()
+        };
         let candidates =
-            candidates_for_response(&response, target, &target_evidence, &candidate_records);
+            candidates_for_response(&response, target, &candidate_evidence, &candidate_records);
         let freshness = freshness_views(slice.sources);
         Ok(WhyResult {
             target: target.to_owned(),
@@ -658,6 +669,29 @@ fn validate_input(value: &str, name: &str, max_bytes: usize) -> Result<(), Engin
         });
     }
     Ok(())
+}
+
+fn proof_seed_ids(target: &ResolvedTarget) -> Vec<String> {
+    match target {
+        ResolvedTarget::Commit { commit, .. } => vec![commit.id.clone()],
+        ResolvedTarget::Lines { introduced_by, .. } => introduced_by
+            .iter()
+            .map(|attribution| attribution.commit_id.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect(),
+    }
+}
+
+fn proof_needs_candidates(response: &KernelResponse) -> bool {
+    matches!(
+        response,
+        KernelResponse::Proof { proof, .. }
+            if matches!(
+                proof.verdict,
+                rationale_model::Verdict::Partial | rationale_model::Verdict::NotEstablished
+            )
+    )
 }
 
 /// Structured result of a candidate-only search.
@@ -945,15 +979,8 @@ fn attach_target(
             end_line,
             revision,
             introduced_by,
-            changed_by,
             ..
         } => {
-            for change in changed_by {
-                nodes
-                    .entry(change.commit.id.clone())
-                    .or_insert_with(|| commit_node(&change.commit));
-                attach_commit_references(&change.commit, nodes, edges);
-            }
             let material = format!("{path}:{start_line}-{end_line}@{revision}");
             let id = format!("code:{}", blake3::hash(material.as_bytes()).to_hex());
             let origin = Origin {
@@ -1153,7 +1180,7 @@ fn candidates_for_response(
             ..
         } => {
             excluded.extend(introduced_by.iter().map(|item| item.commit_id.clone()));
-            for change in changed_by {
+            for change in changed_by.iter().take(MAX_CANDIDATE_HISTORY_SUMMARIES) {
                 text.push('\n');
                 text.push_str(&change.commit.summary);
             }

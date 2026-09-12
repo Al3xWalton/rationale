@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/rationale-bench",
     "crates/rationale-cli",
     "crates/rationale-docs",
     "crates/rationale-engine",

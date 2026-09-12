@@ -1675,6 +1675,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "rationale-bench"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "jiff",
+ "rationale-engine",
+ "rationale-model",
+ "rationale-protocol",
+ "rationale-store",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "rationale-cli"
 version = "0.1.0"
 dependencies = [

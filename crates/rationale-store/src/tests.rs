@@ -173,6 +173,49 @@ fn published_snapshot_round_trips_evidence_and_metadata() {
 }
 
 #[test]
+fn proof_slice_excludes_unreachable_records_before_loading() {
+    let mut store = EvidenceStore::open_in_memory().expect("store should open");
+    let request = request();
+    let candidate = store
+        .begin_candidate(metadata("snapshot-proof-slice"))
+        .expect("candidate should begin");
+    insert_request(&candidate, &request).expect("fixture should insert");
+    let mut unrelated = request.nodes[0].clone();
+    unrelated.id = "unrelated-record".to_owned();
+    unrelated.origin.locator = "synthetic:unrelated".to_owned();
+    candidate
+        .insert_record(&unrelated)
+        .expect("unrelated fixture should insert");
+    candidate
+        .set_source_state(&source("cursor-proof-slice"))
+        .expect("source state should insert");
+    candidate
+        .publish("2026-09-12T10:01:00Z")
+        .expect("candidate should publish");
+
+    let bounded = SliceLimits {
+        max_nodes: request.nodes.len(),
+        max_edges: request.edges.len(),
+        max_conflicts: request.conflicts.len(),
+    };
+    let slice = store
+        .load_current_proof_slice(std::slice::from_ref(&request.goal.target_id), bounded)
+        .expect("reachable slice should fit its exact bound")
+        .expect("snapshot should exist");
+    assert_eq!(slice.nodes.len(), request.nodes.len());
+    assert_eq!(slice.edges.len(), request.edges.len());
+    assert!(slice.nodes.iter().all(|node| node.id != unrelated.id));
+
+    let complete = store
+        .load_current_slice(bounded)
+        .expect_err("the same bound must reject the complete graph");
+    assert!(matches!(
+        complete,
+        StoreError::SliceLimitExceeded { kind: "nodes", .. }
+    ));
+}
+
+#[test]
 fn immutable_entities_are_idempotent_and_reject_content_mismatch() {
     let mut store = EvidenceStore::open_in_memory().expect("store should open");
     publish_fixture(&mut store, "snapshot-1", "cursor-1");

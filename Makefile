@@ -1,10 +1,18 @@
 OPAM_SWITCH := rationale-5.5.1
+BENCH_SCALE ?= ava-like
+BENCH_SAMPLES ?= 30
+BENCH_OUTPUT ?= benchmarks/results/latest.json
 
-.PHONY: audit build demo fmt fuzz-check lint test verify
+.PHONY: audit benchmark build demo fmt fuzz-check lint test verify
 
 audit:
 	cargo deny check
 	cargo deny --manifest-path fuzz/Cargo.toml check
+
+benchmark:
+	opam exec --switch=$(OPAM_SWITCH) -- dune build --root ocaml @all
+	cargo build --release --workspace
+	target/release/rationale-bench --scale $(BENCH_SCALE) --samples $(BENCH_SAMPLES) --output $(BENCH_OUTPUT)
 
 build:
 	opam exec --switch=$(OPAM_SWITCH) -- dune build --root ocaml @all

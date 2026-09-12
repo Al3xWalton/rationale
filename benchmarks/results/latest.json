@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "scale": "ava_like",
+  "fixture": {
+    "commits": 400,
+    "files": 1000,
+    "documents": 50
+  },
+  "measurement_samples": 30,
+  "host": {
+    "measured_at": "2026-09-12T02:13:38.408151Z",
+    "operating_system": "Darwin 25.4.0 arm64",
+    "architecture": "aarch64",
+    "cpu": "Apple M4 Max",
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+    "ocaml": "5.5.1",
+    "rationale_commit": "ffa85f733ea74deb282dbdff00a87873cb752986",
+    "rationale_index_tree": "1edda5d8f41daa1b70f78639e6ee9def4eb290e3",
+    "source_state": "staged_changes"
+  },
+  "metrics": {
+    "cold_local_ingestion": {
+      "samples": 1,
+      "min_ms": 26.743,
+      "median_ms": 26.743,
+      "p95_ms": 26.743,
+      "max_ms": 26.743
+    },
+    "incremental_local_sync": {
+      "samples": 30,
+      "min_ms": 22.182,
+      "median_ms": 27.647,
+      "p95_ms": 34.842,
+      "max_ms": 35.008
+    },
+    "graph_slice_extraction": {
+      "samples": 30,
+      "min_ms": 2.048,
+      "median_ms": 2.086,
+      "p95_ms": 2.256,
+      "max_ms": 2.256
+    },
+    "rust_protocol_codec": {
+      "samples": 30,
+      "min_ms": 0.009,
+      "median_ms": 0.009,
+      "p95_ms": 0.009,
+      "max_ms": 0.009
+    },
+    "ocaml_kernel_evaluation_ms": 0.002,
+    "worker_round_trip": {
+      "samples": 30,
+      "min_ms": 0.055,
+      "median_ms": 0.063,
+      "p95_ms": 0.08,
+      "max_ms": 0.095
+    },
+    "estimated_process_protocol_overhead_ms": 0.061,
+    "warm_engine_query": {
+      "samples": 30,
+      "min_ms": 5.105,
+      "median_ms": 5.394,
+      "p95_ms": 5.89,
+      "max_ms": 6.194
+    },
+    "warm_cli_query": {
+      "samples": 30,
+      "min_ms": 12.794,
+      "median_ms": 13.654,
+      "p95_ms": 15.219,
+      "max_ms": 15.254
+    },
+    "warm_mcp_query": {
+      "samples": 30,
+      "min_ms": 5.203,
+      "median_ms": 5.655,
+      "p95_ms": 6.061,
+      "max_ms": 7.026
+    },
+    "sqlite_publication": {
+      "samples": 30,
+      "min_ms": 5.838,
+      "median_ms": 7.179,
+      "p95_ms": 10.504,
+      "max_ms": 10.96
+    }
+  },
+  "proof_scope": {
+    "snapshot_nodes": 480,
+    "snapshot_edges": 479,
+    "request_nodes": 4,
+    "request_edges": 3
+  },
+  "stability": {
+    "repeated_queries": 200,
+    "rss_before_kib": 35104,
+    "rss_after_kib": 37568,
+    "rss_growth_kib": 2464,
+    "engine_payloads_byte_identical": "pass",
+    "cli_payloads_byte_identical": "pass",
+    "mcp_payloads_byte_identical": "pass",
+    "worker_payloads_byte_identical": "pass"
+  },
+  "budgets": {
+    "warm_query_p95_under_100_ms": "pass",
+    "incremental_sync_p95_under_1000_ms": "pass",
+    "proof_request_is_sliced": "pass",
+    "repeated_rss_growth_under_8192_kib": "pass",
+    "canonical_payloads_stable": "pass",
+    "all_passed": "pass"
+  }
+}

@@ -126,6 +126,22 @@ fn blame_and_history_cover_initial_and_later_changes() {
         })
     }));
 
+    let proof_only = resolver
+        .resolve_for_proof(&TargetSpec::from_str("src/app.txt:2").expect("target should parse"))
+        .expect("proof attribution should resolve");
+    let ResolvedTarget::Lines {
+        introduced_by,
+        changed_by,
+        history_complete,
+        ..
+    } = proof_only
+    else {
+        panic!("expected line evidence");
+    };
+    assert_eq!(introduced_by[0].commit_id, changed);
+    assert!(changed_by.is_empty());
+    assert!(!history_complete);
+
     let first_line = resolver
         .resolve(&TargetSpec::from_str("src/app.txt:1").expect("target should parse"))
         .expect("unchanged line should resolve");

@@ -122,6 +122,30 @@ Candidate scores and candidate designations are suggestions, not evidence
 relationships: neither enters a kernel request or proof path, and selecting or
 omitting a suggestion cannot promote a verdict.
 
+## Measured performance
+
+The reproducible `ava-like` fixture contains 400 commits, 1,000 files, and 50
+evidence documents. On an Apple M4 Max with Rust 1.98.0 and OCaml 5.5.1, the
+September 2026 release-mode baseline measured:
+
+| Operation | p95 |
+| --- | ---: |
+| Incremental offline synchronization | 34.842 ms |
+| Graph-slice extraction | 2.256 ms |
+| Long-lived worker round trip | 0.080 ms |
+| Warm engine query | 5.890 ms |
+| Warm CLI query | 15.219 ms |
+| Warm MCP query | 6.061 ms |
+| SQLite snapshot publication | 10.504 ms |
+
+The bounded query sent 4 nodes and 3 edges to the OCaml kernel from a stored
+snapshot of 480 nodes and 479 edges. Two hundred repeated queries added 2.4 MiB
+of resident process-tree memory, and the engine, CLI, MCP, and worker payloads
+remained byte-identical. These are single-machine measurements, not universal
+claims; the generated fixture, budgets, and host metadata are recorded in the
+[benchmark methodology](benchmarks/README.md) and
+[machine-readable result](benchmarks/results/latest.json).
+
 ## Agent integration
 
 `rationale serve` exposes four read-only MCP tools over stdio:

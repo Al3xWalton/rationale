@@ -8,6 +8,29 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use thiserror::Error;
 
 const INITIAL_MIGRATION: &str = include_str!("../../../migrations/0001_initial.sql");
+const REACHABLE_CTE: &str = r"
+WITH RECURSIVE reachable(id) AS (
+    SELECT CAST(value AS TEXT) FROM json_each(?2)
+    UNION
+    SELECT edges.target_id
+    FROM reachable
+    JOIN edges ON edges.source_id = reachable.id
+    JOIN snapshot_edges ON snapshot_edges.edge_id = edges.id
+    WHERE snapshot_edges.snapshot_id = ?1
+    UNION
+    SELECT conflicts.right_node_id
+    FROM reachable
+    JOIN conflicts ON conflicts.left_node_id = reachable.id
+    JOIN snapshot_conflicts USING (left_node_id, right_node_id, rule_id)
+    WHERE snapshot_conflicts.snapshot_id = ?1
+    UNION
+    SELECT conflicts.left_node_id
+    FROM reachable
+    JOIN conflicts ON conflicts.right_node_id = reachable.id
+    JOIN snapshot_conflicts USING (left_node_id, right_node_id, rule_id)
+    WHERE snapshot_conflicts.snapshot_id = ?1
+)
+";
 
 /// Failure while building, publishing, or reading an evidence snapshot.
 #[derive(Debug, Error)]
@@ -304,6 +327,89 @@ impl EvidenceStore {
             conflicts,
             sources,
         }))
+    }
+
+    /// Load only current evidence reachable forward from explicit seed records.
+    ///
+    /// Conflict counterparts are included in both directions so an explicit
+    /// conflict cannot disappear merely because it is represented outside the
+    /// directed proof-edge graph. The returned slice is read atomically and
+    /// ordered identically to a complete slice.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` for database, decoding, or explicit slice-limit
+    /// failures.
+    pub fn load_current_proof_slice(
+        &mut self,
+        seed_ids: &[String],
+        limits: SliceLimits,
+    ) -> Result<Option<GraphSlice>, StoreError> {
+        if seed_ids.len() > limits.max_nodes {
+            return Err(StoreError::SliceLimitExceeded {
+                kind: "nodes",
+                actual: seed_ids.len(),
+                limit: limits.max_nodes,
+            });
+        }
+        let seed_json = serde_json::to_string(seed_ids)?;
+        let transaction = self.connection.transaction()?;
+        let snapshot_id: Option<String> = transaction
+            .query_row(
+                "SELECT snapshot_id FROM current_snapshot WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(snapshot_id) = snapshot_id else {
+            transaction.commit()?;
+            return Ok(None);
+        };
+
+        enforce_reachable_limits(&transaction, &snapshot_id, &seed_json, limits)?;
+        let nodes = load_reachable_nodes(&transaction, &snapshot_id, &seed_json)?;
+        let edges = load_reachable_edges(&transaction, &snapshot_id, &seed_json)?;
+        let conflicts = load_reachable_conflicts(&transaction, &snapshot_id, &seed_json)?;
+        let sources = load_sources(&transaction, &snapshot_id)?;
+        transaction.commit()?;
+        Ok(Some(GraphSlice {
+            snapshot_id,
+            nodes,
+            edges,
+            conflicts,
+            sources,
+        }))
+    }
+
+    /// Load bounded records from one immutable snapshot identifier.
+    ///
+    /// This supports post-proof candidate ranking without reading or sending the
+    /// snapshot's edge and conflict collections.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` for database, decoding, or record-limit failures.
+    pub fn load_snapshot_records(
+        &self,
+        snapshot_id: &str,
+        max_nodes: usize,
+    ) -> Result<Vec<EvidenceNode>, StoreError> {
+        enforce_limit(
+            &self.connection,
+            "snapshot_records",
+            snapshot_id,
+            "nodes",
+            max_nodes,
+        )?;
+        load_json_rows::<EvidenceNode>(
+            &self.connection,
+            "SELECT records.content_json
+             FROM snapshot_records
+             JOIN records ON records.id = snapshot_records.record_id
+             WHERE snapshot_records.snapshot_id = ?1
+             ORDER BY records.id",
+            snapshot_id,
+        )
     }
 
     /// Look up the immutable origin for one stored record.
@@ -812,7 +918,7 @@ fn validate_candidate(transaction: &Transaction<'_>, snapshot_id: &str) -> Resul
 }
 
 fn enforce_limit(
-    transaction: &Transaction<'_>,
+    connection: &Connection,
     table: &'static str,
     snapshot_id: &str,
     kind: &'static str,
@@ -824,7 +930,7 @@ fn enforce_limit(
         "snapshot_conflicts" => "SELECT COUNT(*) FROM snapshot_conflicts WHERE snapshot_id = ?1",
         _ => unreachable!("snapshot membership table is fixed by the repository"),
     };
-    let actual: i64 = transaction.query_row(query, [snapshot_id], |row| row.get(0))?;
+    let actual: i64 = connection.query_row(query, [snapshot_id], |row| row.get(0))?;
     let actual = usize::try_from(actual).expect("SQLite count is non-negative");
     if actual > limit {
         Err(StoreError::SliceLimitExceeded {
@@ -837,6 +943,148 @@ fn enforce_limit(
     }
 }
 
+fn enforce_query_limit(
+    connection: &Connection,
+    query: &str,
+    snapshot_id: &str,
+    seed_json: &str,
+    kind: &'static str,
+    limit: usize,
+) -> Result<(), StoreError> {
+    let actual: i64 =
+        connection.query_row(query, params![snapshot_id, seed_json], |row| row.get(0))?;
+    let actual = usize::try_from(actual).expect("SQLite count is non-negative");
+    if actual > limit {
+        Err(StoreError::SliceLimitExceeded {
+            kind,
+            actual,
+            limit,
+        })
+    } else {
+        Ok(())
+    }
+}
+
+fn enforce_reachable_limits(
+    connection: &Connection,
+    snapshot_id: &str,
+    seed_json: &str,
+    limits: SliceLimits,
+) -> Result<(), StoreError> {
+    let queries = [
+        (
+            format!(
+                "{REACHABLE_CTE}
+                 SELECT COUNT(*)
+                 FROM reachable
+                 JOIN snapshot_records
+                   ON snapshot_records.record_id = reachable.id
+                  AND snapshot_records.snapshot_id = ?1"
+            ),
+            "nodes",
+            limits.max_nodes,
+        ),
+        (
+            format!(
+                "{REACHABLE_CTE}
+                 SELECT COUNT(*)
+                 FROM edges
+                 JOIN snapshot_edges ON snapshot_edges.edge_id = edges.id
+                 JOIN reachable ON reachable.id = edges.source_id
+                 WHERE snapshot_edges.snapshot_id = ?1"
+            ),
+            "edges",
+            limits.max_edges,
+        ),
+        (
+            format!(
+                "{REACHABLE_CTE}
+                 SELECT COUNT(*)
+                 FROM conflicts
+                 JOIN snapshot_conflicts USING (left_node_id, right_node_id, rule_id)
+                 JOIN reachable AS reachable_left
+                   ON reachable_left.id = conflicts.left_node_id
+                 JOIN reachable AS reachable_right
+                   ON reachable_right.id = conflicts.right_node_id
+                 WHERE snapshot_conflicts.snapshot_id = ?1"
+            ),
+            "conflicts",
+            limits.max_conflicts,
+        ),
+    ];
+    for (query, kind, limit) in queries {
+        enforce_query_limit(connection, &query, snapshot_id, seed_json, kind, limit)?;
+    }
+    Ok(())
+}
+
+fn load_reachable_nodes(
+    connection: &Connection,
+    snapshot_id: &str,
+    seed_json: &str,
+) -> Result<Vec<EvidenceNode>, StoreError> {
+    load_seeded_json_rows(
+        connection,
+        &format!(
+            "{REACHABLE_CTE}
+             SELECT records.content_json
+             FROM reachable
+             JOIN snapshot_records
+               ON snapshot_records.record_id = reachable.id
+              AND snapshot_records.snapshot_id = ?1
+             JOIN records ON records.id = reachable.id
+             ORDER BY records.id"
+        ),
+        snapshot_id,
+        seed_json,
+    )
+}
+
+fn load_reachable_edges(
+    connection: &Connection,
+    snapshot_id: &str,
+    seed_json: &str,
+) -> Result<Vec<EvidenceEdge>, StoreError> {
+    load_seeded_json_rows(
+        connection,
+        &format!(
+            "{REACHABLE_CTE}
+             SELECT edges.content_json
+             FROM edges
+             JOIN snapshot_edges ON snapshot_edges.edge_id = edges.id
+             JOIN reachable ON reachable.id = edges.source_id
+             WHERE snapshot_edges.snapshot_id = ?1
+             ORDER BY edges.id"
+        ),
+        snapshot_id,
+        seed_json,
+    )
+}
+
+fn load_reachable_conflicts(
+    connection: &Connection,
+    snapshot_id: &str,
+    seed_json: &str,
+) -> Result<Vec<Conflict>, StoreError> {
+    load_seeded_json_rows(
+        connection,
+        &format!(
+            "{REACHABLE_CTE}
+             SELECT conflicts.content_json
+             FROM conflicts
+             JOIN snapshot_conflicts USING (left_node_id, right_node_id, rule_id)
+             JOIN reachable AS reachable_left
+               ON reachable_left.id = conflicts.left_node_id
+             JOIN reachable AS reachable_right
+               ON reachable_right.id = conflicts.right_node_id
+             WHERE snapshot_conflicts.snapshot_id = ?1
+             ORDER BY left_node_id, right_node_id, rule_id"
+        ),
+        snapshot_id,
+        seed_json,
+    )
+}
+
 fn load_json_rows<T: serde::de::DeserializeOwned>(
     connection: &Connection,
     query: &str,
@@ -844,6 +1092,23 @@ fn load_json_rows<T: serde::de::DeserializeOwned>(
 ) -> Result<Vec<T>, StoreError> {
     let mut statement = connection.prepare(query)?;
     let rows = statement.query_map([snapshot_id], |row| row.get::<_, String>(0))?;
+    rows.map(|json| {
+        let json = json?;
+        serde_json::from_str(&json).map_err(StoreError::from)
+    })
+    .collect()
+}
+
+fn load_seeded_json_rows<T: serde::de::DeserializeOwned>(
+    connection: &Connection,
+    query: &str,
+    snapshot_id: &str,
+    seed_json: &str,
+) -> Result<Vec<T>, StoreError> {
+    let mut statement = connection.prepare(query)?;
+    let rows = statement.query_map(params![snapshot_id, seed_json], |row| {
+        row.get::<_, String>(0)
+    })?;
     rows.map(|json| {
         let json = json?;
         serde_json::from_str(&json).map_err(StoreError::from)
