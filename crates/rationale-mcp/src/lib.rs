@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct ExplainRationaleInput {
     /// `path:line`, `path:start-end@revision`, or `commit:revision`.
+    #[schemars(length(min = 1, max = 4096))]
     pub target: String,
 }
 
@@ -26,6 +27,7 @@ pub struct ExplainRationaleInput {
 #[serde(deny_unknown_fields)]
 pub struct GetEvidenceInput {
     /// Stable normalized record identifier.
+    #[schemars(length(min = 1, max = 128))]
     pub record_id: String,
 }
 
@@ -50,6 +52,7 @@ pub struct FindRationaleGapsInput {
 #[serde(deny_unknown_fields)]
 pub struct SearchCandidateEvidenceInput {
     /// Exact tokens or identifier to rank against current records.
+    #[schemars(length(min = 1, max = 4096))]
     pub query: String,
 }
 

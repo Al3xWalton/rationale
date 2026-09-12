@@ -341,3 +341,47 @@ fn generated_database_is_inspectable_with_sqlite_cli() {
     let stdout = String::from_utf8(output.stdout).expect("sqlite3 output should be UTF-8");
     assert_eq!(stdout, "ok\nsnapshot-1\n");
 }
+
+#[test]
+fn corrupted_database_is_rejected_without_replacement() {
+    let database = TempDatabase::new("corrupt");
+    fs::write(database.path(), b"not a SQLite database")
+        .expect("corrupt fixture should be written");
+    let before = fs::read(database.path()).expect("fixture should be readable");
+    assert!(EvidenceStore::open(database.path()).is_err());
+    assert_eq!(
+        fs::read(database.path()).expect("failed open must retain the source"),
+        before
+    );
+}
+
+#[test]
+fn incompatible_existing_schema_fails_migration_closed() {
+    let database = TempDatabase::new("migration");
+    {
+        let connection =
+            rusqlite::Connection::open(database.path()).expect("fixture database should open");
+        connection
+            .execute_batch("CREATE TABLE records (unexpected TEXT NOT NULL);")
+            .expect("incompatible fixture schema should be created");
+    }
+    assert!(EvidenceStore::open(database.path()).is_err());
+    let connection = rusqlite::Connection::open(database.path())
+        .expect("failed migration should not destroy the database");
+    let columns: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('records') WHERE name = 'unexpected'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("fixture schema should remain inspectable");
+    assert_eq!(columns, 1);
+    let migration_table: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("schema should remain queryable");
+    assert_eq!(migration_table, 0, "failed DDL must roll back atomically");
+}

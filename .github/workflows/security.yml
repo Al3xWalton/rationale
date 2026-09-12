@@ -1,0 +1,41 @@
+name: Dependency policy
+
+on:
+  push:
+    paths:
+      - "**/Cargo.lock"
+      - "**/Cargo.toml"
+      - ".github/workflows/security.yml"
+      - "deny.toml"
+  pull_request:
+    paths:
+      - "**/Cargo.lock"
+      - "**/Cargo.toml"
+      - ".github/workflows/security.yml"
+      - "deny.toml"
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check advisories, licenses, bans, and sources
+        uses: EmbarkStudios/cargo-deny-action@c3bbe7e4e3f7baeee1a3dd9aec0a3b2aded580fb # v2.1.1
+        with:
+          rust-version: "1.98.0"
+          command: check
+      - name: Check fuzz-harness dependencies
+        uses: EmbarkStudios/cargo-deny-action@c3bbe7e4e3f7baeee1a3dd9aec0a3b2aded580fb # v2.1.1
+        with:
+          rust-version: "1.98.0"
+          manifest-path: fuzz/Cargo.toml
+          command: check

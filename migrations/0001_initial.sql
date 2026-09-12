@@ -1,7 +1,3 @@
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = FULL;
-
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL

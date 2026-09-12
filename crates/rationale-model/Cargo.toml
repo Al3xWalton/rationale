@@ -1,6 +1,7 @@
 [package]
 name = "rationale-model"
 description = "Shared domain types for Rationale"
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

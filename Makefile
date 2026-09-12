@@ -1,6 +1,10 @@
 OPAM_SWITCH := rationale-5.5.1
 
-.PHONY: build demo fmt lint test verify
+.PHONY: audit build demo fmt fuzz-check lint test verify
+
+audit:
+	cargo deny check
+	cargo deny --manifest-path fuzz/Cargo.toml check
 
 build:
 	opam exec --switch=$(OPAM_SWITCH) -- dune build --root ocaml @all
@@ -12,6 +16,9 @@ demo:
 fmt:
 	cargo fmt --all
 	opam exec --switch=$(OPAM_SWITCH) -- dune fmt --root ocaml
+
+fuzz-check:
+	cargo check --manifest-path fuzz/Cargo.toml --bins
 
 lint:
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -27,4 +34,5 @@ verify:
 	opam exec --switch=$(OPAM_SWITCH) -- dune build --root ocaml @all
 	RATIONALE_KERNEL_WORKER="$(CURDIR)/ocaml/_build/default/worker/main.exe" RATIONALE_FIXTURE_ROOT="$(CURDIR)/fixtures/protocol" cargo test --workspace --all-features
 	RATIONALE_FIXTURE_ROOT="$(CURDIR)/fixtures/protocol" opam exec --switch=$(OPAM_SWITCH) -- dune runtest --root ocaml
+	cargo check --manifest-path fuzz/Cargo.toml --bins
 	git diff --check

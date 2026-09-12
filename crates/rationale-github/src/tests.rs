@@ -294,3 +294,101 @@ async fn status_errors_never_include_tokens_or_response_bodies() {
         1
     );
 }
+
+#[tokio::test]
+async fn deeply_nested_json_is_rejected_as_an_invalid_response() {
+    let responses = vec![StubResponse {
+        status: "200 OK",
+        headers: Vec::new(),
+        body: format!("{}null{}", "[".repeat(256), "]".repeat(256)),
+    }];
+    let (base, handle) = stub_server(|_| responses);
+    let client = GitHubClient::with_api_base(&base, None).expect("fixture client should build");
+    let repository = GitHubRepository::from_remote("https://github.com/acme/widget.git")
+        .expect("remote should normalize");
+    let error = client
+        .synchronize(&repository, None)
+        .await
+        .expect_err("deep JSON must fail closed");
+    assert!(matches!(error, GitHubError::InvalidResponse { .. }));
+    assert_eq!(
+        handle.join().expect("fixture server should finish").len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn expanded_record_collections_stop_at_the_explicit_limit() {
+    let body = serde_json::to_string(
+        &(0..=super::MAX_RECORDS)
+            .map(|number| {
+                serde_json::json!({
+                    "number": number,
+                    "html_url": format!("https://github.com/acme/widget/issues/{number}")
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
+    .expect("fixture should encode");
+    let responses = vec![StubResponse {
+        status: "200 OK",
+        headers: Vec::new(),
+        body,
+    }];
+    let (base, handle) = stub_server(|_| responses);
+    let client = GitHubClient::with_api_base(&base, None).expect("fixture client should build");
+    let repository = GitHubRepository::from_remote("https://github.com/acme/widget.git")
+        .expect("remote should normalize");
+    let error = client
+        .synchronize(&repository, None)
+        .await
+        .expect_err("expanded collection must stop at its bound");
+    assert!(matches!(
+        error,
+        GitHubError::ResourceLimit {
+            resource: "record",
+            ..
+        }
+    ));
+    assert_eq!(
+        handle.join().expect("fixture server should finish").len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn pagination_expansion_stops_at_the_explicit_page_limit() {
+    let (base, handle) = stub_server(|address| {
+        (0..super::MAX_PAGES)
+            .map(|page| StubResponse {
+                status: "200 OK",
+                headers: vec![(
+                    "Link".to_owned(),
+                    format!(
+                        "<http://{address}/repos/acme/widget/issues?page={}>; rel=\"next\"",
+                        page + 2
+                    ),
+                )],
+                body: "[]".to_owned(),
+            })
+            .collect()
+    });
+    let client = GitHubClient::with_api_base(&base, None).expect("fixture client should build");
+    let repository = GitHubRepository::from_remote("https://github.com/acme/widget.git")
+        .expect("remote should normalize");
+    let error = client
+        .synchronize(&repository, None)
+        .await
+        .expect_err("pagination must stop at its bound");
+    assert!(matches!(
+        error,
+        GitHubError::ResourceLimit {
+            resource: "page",
+            limit: super::MAX_PAGES,
+        }
+    ));
+    assert_eq!(
+        handle.join().expect("fixture server should finish").len(),
+        super::MAX_PAGES
+    );
+}

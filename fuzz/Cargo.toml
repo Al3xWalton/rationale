@@ -1,0 +1,40 @@
+[package]
+name = "rationale-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "LicenseRef-Proprietary"
+rust-version = "1.98"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+rationale-docs = { path = "../crates/rationale-docs", version = "=0.1.0" }
+rationale-git = { path = "../crates/rationale-git", version = "=0.1.0" }
+rationale-protocol = { path = "../crates/rationale-protocol", version = "=0.1.0" }
+
+[[bin]]
+name = "protocol_frame"
+path = "fuzz_targets/protocol_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "target_spec"
+path = "fuzz_targets/target_spec.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "document_metadata"
+path = "fuzz_targets/document_metadata.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

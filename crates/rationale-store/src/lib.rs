@@ -15,6 +15,9 @@ pub enum StoreError {
     /// SQLite rejected an operation.
     #[error("evidence database failed: {0}")]
     Database(#[from] rusqlite::Error),
+    /// The database schema is not the exact supported version.
+    #[error("evidence database schema is incompatible with version 1")]
+    IncompatibleSchema,
     /// A protocol value could not be encoded canonically.
     #[error(transparent)]
     CanonicalJson(#[from] CanonicalJsonError),
@@ -164,9 +167,15 @@ impl EvidenceStore {
         Self::initialize(Connection::open_in_memory()?)
     }
 
-    fn initialize(connection: Connection) -> Result<Self, StoreError> {
+    fn initialize(mut connection: Connection) -> Result<Self, StoreError> {
         connection.busy_timeout(std::time::Duration::from_secs(2))?;
-        connection.execute_batch(INITIAL_MIGRATION)?;
+        connection.execute_batch(
+            "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;",
+        )?;
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute_batch(INITIAL_MIGRATION)?;
+        validate_schema(&transaction)?;
+        transaction.commit()?;
         Ok(Self { connection })
     }
 
@@ -402,6 +411,95 @@ pub struct CandidateSnapshot<'connection> {
     transaction: Transaction<'connection>,
     snapshot_id: String,
     created_at: String,
+}
+
+fn validate_schema(connection: &Connection) -> Result<(), StoreError> {
+    const EXPECTED_TABLES: &[(&str, &[&str])] = &[
+        ("schema_migrations", &["version", "applied_at"]),
+        (
+            "records",
+            &["id", "content_json", "origin_json", "created_at"],
+        ),
+        (
+            "edges",
+            &[
+                "id",
+                "source_id",
+                "target_id",
+                "content_json",
+                "origin_json",
+                "created_at",
+            ],
+        ),
+        (
+            "conflicts",
+            &[
+                "left_node_id",
+                "right_node_id",
+                "rule_id",
+                "content_json",
+                "created_at",
+            ],
+        ),
+        ("snapshots", &["id", "created_at", "published_at", "state"]),
+        ("snapshot_records", &["snapshot_id", "record_id"]),
+        ("snapshot_edges", &["snapshot_id", "edge_id"]),
+        (
+            "snapshot_conflicts",
+            &["snapshot_id", "left_node_id", "right_node_id", "rule_id"],
+        ),
+        (
+            "snapshot_sources",
+            &[
+                "snapshot_id",
+                "source_id",
+                "source_kind",
+                "freshness",
+                "observed_at",
+                "cursor",
+            ],
+        ),
+        (
+            "source_cursors",
+            &["source_id", "cursor", "snapshot_id", "updated_at"],
+        ),
+        (
+            "quarantined_inputs",
+            &[
+                "id",
+                "snapshot_id",
+                "source_locator",
+                "diagnostic_code",
+                "diagnostic_message",
+                "created_at",
+            ],
+        ),
+        ("current_snapshot", &["singleton", "snapshot_id"]),
+    ];
+
+    let supported_versions: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM schema_migrations WHERE version = 1",
+        [],
+        |row| row.get(0),
+    )?;
+    let all_versions: i64 =
+        connection.query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })?;
+    if supported_versions != 1 || all_versions != 1 {
+        return Err(StoreError::IncompatibleSchema);
+    }
+
+    for (table, expected) in EXPECTED_TABLES {
+        let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+        let actual = statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if actual != *expected {
+            return Err(StoreError::IncompatibleSchema);
+        }
+    }
+    Ok(())
 }
 
 impl CandidateSnapshot<'_> {

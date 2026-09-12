@@ -152,6 +152,27 @@ fn arguments(value: Value) -> serde_json::Map<String, Value> {
     arguments
 }
 
+fn invalid_tool_requests() -> [(&'static str, Value); 4] {
+    [
+        (
+            "explain_rationale",
+            serde_json::json!({ "target": "not-a-target" }),
+        ),
+        (
+            "explain_rationale",
+            serde_json::json!({ "target": "x".repeat(4_097) }),
+        ),
+        (
+            "get_evidence",
+            serde_json::json!({ "record_id": "x".repeat(129) }),
+        ),
+        (
+            "search_candidate_evidence",
+            serde_json::json!({ "query": "x".repeat(4_097) }),
+        ),
+    ]
+}
+
 fn assert_read_only_tools(tools: &[rmcp::model::Tool]) {
     let names: BTreeSet<_> = tools.iter().map(|tool| tool.name.as_ref()).collect();
     assert_eq!(
@@ -173,6 +194,24 @@ fn assert_read_only_tools(tools: &[rmcp::model::Tool]) {
         assert_eq!(annotations.read_only_hint, Some(true));
         assert_eq!(annotations.destructive_hint, Some(false));
         assert_eq!(annotations.open_world_hint, Some(false));
+    }
+    for (name, property, maximum) in [
+        ("explain_rationale", "target", 4_096),
+        ("get_evidence", "record_id", 128),
+        ("search_candidate_evidence", "query", 4_096),
+    ] {
+        let tool = tools
+            .iter()
+            .find(|tool| tool.name == name)
+            .expect("bounded tool should be listed");
+        let exposed_maximum = tool
+            .input_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .and_then(|properties| properties.get(property))
+            .and_then(|property| property.get("maxLength"))
+            .and_then(Value::as_u64);
+        assert_eq!(exposed_maximum, Some(maximum));
     }
 }
 
@@ -271,6 +310,18 @@ fn exit_categories_keep_missing_invalid_and_unavailable_distinct() {
     let missing_remote = repository.rationale(&["--database", database, "sync", "--json"]);
     assert_exit(&missing_remote, 4);
     assert_eq!(json(&missing_remote)["error"]["category"], "invalid_input");
+
+    let secret = "environment-only-secret";
+    let credential_error = Command::new(env!("CARGO_BIN_EXE_rationale"))
+        .args(["--database", database, "sync", "--json"])
+        .current_dir(&repository.path)
+        .env("GH_TOKEN", secret)
+        .env_remove("GITHUB_TOKEN")
+        .output()
+        .expect("rationale should run with an environment credential");
+    assert_exit(&credential_error, 4);
+    assert!(!stdout(&credential_error).contains(secret));
+    assert!(!String::from_utf8_lossy(&credential_error.stderr).contains(secret));
 
     let unavailable = repository.rationale(&[
         "--database",
@@ -453,6 +504,14 @@ async fn mcp_tools_are_read_only_and_match_cli_json() {
         .expect("candidate tool should return structured content");
     assert_eq!(search["query"], "story 1");
     assert_eq!(search["candidates"][0]["record_id"], "STORY-1");
+
+    for (tool, payload) in invalid_tool_requests() {
+        let invalid = client
+            .call_tool(CallToolRequestParams::new(tool).with_arguments(arguments(payload)))
+            .await
+            .expect("invalid tool request should return a bounded MCP error");
+        assert_eq!(invalid.is_error, Some(true));
+    }
 
     client.cancel().await.expect("MCP client should shut down");
 }

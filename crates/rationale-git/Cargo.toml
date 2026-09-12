@@ -1,6 +1,7 @@
 [package]
 name = "rationale-git"
 description = "Conservative local Git evidence resolution for Rationale"
+publish = false
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

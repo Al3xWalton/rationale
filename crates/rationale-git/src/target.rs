@@ -2,6 +2,9 @@ use std::{path::PathBuf, str::FromStr};
 
 use crate::GitEvidenceError;
 
+/// Maximum UTF-8 byte length accepted by the public target syntax.
+pub const MAX_TARGET_BYTES: usize = 4_096;
+
 /// A repository target accepted by local Git resolution.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TargetSpec {
@@ -27,6 +30,11 @@ impl FromStr for TargetSpec {
     type Err = GitEvidenceError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
+        if input.len() > MAX_TARGET_BYTES {
+            return Err(GitEvidenceError::InvalidTarget {
+                detail: format!("target exceeds {MAX_TARGET_BYTES} bytes"),
+            });
+        }
         if let Some(revision) = input.strip_prefix("commit:") {
             if revision.is_empty() || revision.chars().any(char::is_whitespace) {
                 return Err(GitEvidenceError::InvalidTarget {
@@ -132,5 +140,11 @@ mod tests {
         for invalid in ["src/lib.rs", "src/lib.rs:0", "src/lib.rs:9-2", "commit:"] {
             assert!(TargetSpec::from_str(invalid).is_err(), "accepted {invalid}");
         }
+    }
+
+    #[test]
+    fn rejects_oversized_targets_before_parsing_components() {
+        let target = "x".repeat(super::MAX_TARGET_BYTES + 1);
+        assert!(TargetSpec::from_str(&target).is_err());
     }
 }

@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use rationale_model::{EdgeKind, NodeKind, RecordStatus};
 
 use super::{DocumentIngestor, DocumentInput, IngestConfig};
@@ -165,6 +167,42 @@ fn malformed_and_oversized_inputs_are_quarantined_without_aborting_batch() {
             .diagnostics
             .iter()
             .all(|diagnostic| !diagnostic.message.contains("rationale: ["))
+    );
+}
+
+#[test]
+fn deeply_nested_structured_metadata_is_rejected_before_decoding() {
+    let mut yaml_nesting = String::new();
+    for depth in 1..=33 {
+        writeln!(yaml_nesting, "{}level_{depth}:", "  ".repeat(depth))
+            .expect("writing to a string should succeed");
+    }
+    let yaml = format!(
+        "---\nrationale:\n{yaml_nesting}{}value: true\n---\n",
+        "  ".repeat(34)
+    );
+    let toml = format!(
+        "version = 1\n[verification]\nid = 'VERIFY-1'\nartifact = 'report'\ntargets = {}'ADR-1'{}\n",
+        "[".repeat(33),
+        "]".repeat(33)
+    );
+    let result = DocumentIngestor::default().ingest([
+        DocumentInput {
+            path: "deep.md",
+            content: &yaml,
+        },
+        DocumentInput {
+            path: "deep.rationale.toml",
+            content: &toml,
+        },
+    ]);
+    assert!(result.records.is_empty());
+    assert_eq!(result.diagnostics.len(), 2);
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code == "structured_nesting")
     );
 }
 

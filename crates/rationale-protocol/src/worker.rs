@@ -19,6 +19,8 @@ use tokio::{
     time,
 };
 
+use crate::{FrameDecodeError, checked_frame_length};
+
 const DEFAULT_MAX_PAYLOAD: usize = 8 * 1024 * 1024;
 const DEFAULT_QUEUE_CAPACITY: usize = 64;
 
@@ -435,15 +437,12 @@ impl Worker {
             .read_exact(&mut header)
             .await
             .map_err(|error| crashed(&error))?;
-        let response_length = u32::from_be_bytes(header) as usize;
-        if response_length > max_payload {
-            return Err(ProofUnavailable::new(
-                ProofUnavailableReason::FrameTooLarge {
-                    length: response_length,
-                    limit: max_payload,
-                },
-            ));
-        }
+        let response_length = checked_frame_length(header, max_payload).map_err(|error| {
+            let FrameDecodeError::FrameTooLarge { length, limit } = error else {
+                unreachable!("frame header validation only returns size failures")
+            };
+            ProofUnavailable::new(ProofUnavailableReason::FrameTooLarge { length, limit })
+        })?;
         let mut response = vec![0_u8; response_length];
         self.stdout
             .read_exact(&mut response)

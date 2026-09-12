@@ -176,6 +176,11 @@ Rust cross-language tests. Installed builds discover `rationale-kernel-worker`
 beside the Rust executable. Set `RATIONALE_KERNEL_WORKER` to an explicit path
 when testing or packaging a different worker build.
 
+`make audit` checks advisories, licenses, dependency duplication, and dependency
+sources under the repository policy. `make fuzz-check` compiles the bounded
+protocol-frame, Git-target, and document-metadata fuzz harnesses. Run campaigns
+with a nightly Rust toolchain and `cargo fuzz run <target>` from `fuzz/`.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the Story and commit conventions.
 
 ## License

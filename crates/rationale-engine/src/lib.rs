@@ -10,8 +10,8 @@ use std::{
 
 use rationale_docs::{DocumentIngestor, DocumentInput, IngestDiagnostic, IngestResult};
 use rationale_git::{
-    CommitEvidence, GitEvidenceError, GitResolver, LocalGitResolver, ReferenceKind, ResolvedTarget,
-    TargetSpec, WorkingChange,
+    CommitEvidence, GitEvidenceError, GitResolver, LocalGitResolver, MAX_TARGET_BYTES,
+    ReferenceKind, ResolvedTarget, TargetSpec, WorkingChange,
 };
 use rationale_github::{GitHubClient, GitHubError, GitHubRepository, GitHubSyncOutcome, RateLimit};
 use rationale_model::{
@@ -33,6 +33,8 @@ use candidate::{CandidateQuery, rank_candidates};
 
 const MAX_DOCUMENT_BYTES: u64 = 1024 * 1024;
 const MAX_SCANNED_ENTRIES: usize = 100_000;
+const MAX_CANDIDATE_QUERY_BYTES: usize = 4_096;
+const MAX_RECORD_ID_BYTES: usize = 128;
 
 /// Failure in local evidence orchestration.
 #[derive(Debug, Error)]
@@ -512,6 +514,7 @@ impl Engine {
     /// Returns `EngineError` for missing snapshots, invalid targets, storage
     /// failures, or proof-worker unavailability.
     pub async fn why(&self, target: &str) -> Result<WhyResult, EngineError> {
+        validate_input(target, "target", MAX_TARGET_BYTES)?;
         let resolver = LocalGitResolver::discover(&self.root)?;
         let parsed = TargetSpec::from_str(target)?;
         let target_evidence = resolver.resolve(&parsed)?;
@@ -570,6 +573,7 @@ impl Engine {
     ///
     /// Returns `EngineError` when the evidence database cannot be opened or read.
     pub fn show(&self, record_id: &str) -> Result<Option<EvidenceNode>, EngineError> {
+        validate_input(record_id, "record identifier", MAX_RECORD_ID_BYTES)?;
         if !self.database_path.is_file() {
             return Err(EngineError::NoSnapshot);
         }
@@ -585,11 +589,7 @@ impl Engine {
     /// failure.
     pub fn search_candidates(&self, query: &str) -> Result<CandidateSearchResult, EngineError> {
         let query = query.trim();
-        if query.is_empty() {
-            return Err(EngineError::InvalidQuery {
-                detail: "candidate query must not be empty".to_owned(),
-            });
-        }
+        validate_input(query, "candidate query", MAX_CANDIDATE_QUERY_BYTES)?;
         if !self.database_path.is_file() {
             return Err(EngineError::NoSnapshot);
         }
@@ -644,6 +644,20 @@ impl Engine {
         *worker = Some(supervisor.clone());
         Ok(supervisor)
     }
+}
+
+fn validate_input(value: &str, name: &str, max_bytes: usize) -> Result<(), EngineError> {
+    if value.is_empty() {
+        return Err(EngineError::InvalidQuery {
+            detail: format!("{name} must not be empty"),
+        });
+    }
+    if value.len() > max_bytes {
+        return Err(EngineError::InvalidQuery {
+            detail: format!("{name} exceeds {max_bytes} bytes"),
+        });
+    }
+    Ok(())
 }
 
 /// Structured result of a candidate-only search.

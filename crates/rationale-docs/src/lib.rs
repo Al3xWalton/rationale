@@ -13,6 +13,7 @@ use serde::Deserialize;
 
 const DEFAULT_MAX_FILE_BYTES: usize = 1024 * 1024;
 const DEFAULT_MAX_DOCUMENTS: usize = 10_000;
+const MAX_STRUCTURED_NESTING: usize = 32;
 type ParseFailure = (&'static str, String);
 type ParsedFrontMatter<'a> = (FrontMatterKind, &'a str, &'a str);
 
@@ -333,6 +334,7 @@ fn decode_rationale(
     kind: FrontMatterKind,
     metadata: &str,
 ) -> Result<Option<RationaleMetadata>, ParseFailure> {
+    validate_structural_nesting(metadata)?;
     let metadata = match kind {
         FrontMatterKind::Yaml => {
             let document: serde_json::Value = serde_saphyr::from_str(metadata)
@@ -458,6 +460,7 @@ fn normalize_markdown(
 }
 
 fn parse_verification(path: &str, source: &str) -> Result<Option<ParsedInput>, ParseFailure> {
+    validate_structural_nesting(source)?;
     let manifest: VerificationManifest = if has_extension(path, "toml") {
         toml::from_str(source).map_err(|_| {
             sanitized(
@@ -526,6 +529,64 @@ fn parse_verification(path: &str, source: &str) -> Result<Option<ParsedInput>, P
         edges,
         conflicts: Vec::new(),
     }))
+}
+
+fn validate_structural_nesting(source: &str) -> Result<(), ParseFailure> {
+    let mut indentation_levels = Vec::new();
+    for line in source.lines() {
+        let content = line.trim_start_matches([' ', '\t']);
+        if content.is_empty() || content.starts_with('#') {
+            continue;
+        }
+        let indentation = line.len() - content.len();
+        while indentation_levels
+            .last()
+            .is_some_and(|level| *level >= indentation)
+        {
+            indentation_levels.pop();
+        }
+        if indentation > 0 {
+            indentation_levels.push(indentation);
+            if indentation_levels.len() > MAX_STRUCTURED_NESTING {
+                return Err(sanitized(
+                    "structured_nesting",
+                    "structured metadata exceeds the nesting limit",
+                ));
+            }
+        }
+    }
+
+    let mut depth = 0_usize;
+    let mut quote = None;
+    let mut escaped = false;
+    for character in source.chars() {
+        if let Some(delimiter) = quote {
+            if delimiter == '"' && character == '\\' && !escaped {
+                escaped = true;
+                continue;
+            }
+            if character == delimiter && !escaped {
+                quote = None;
+            }
+            escaped = false;
+            continue;
+        }
+        match character {
+            '\'' | '"' => quote = Some(character),
+            '[' | '{' => {
+                depth += 1;
+                if depth > MAX_STRUCTURED_NESTING {
+                    return Err(sanitized(
+                        "structured_nesting",
+                        "structured metadata exceeds the nesting limit",
+                    ));
+                }
+            }
+            ']' | '}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 fn front_matter(source: &str) -> Result<Option<ParsedFrontMatter<'_>>, ParseFailure> {

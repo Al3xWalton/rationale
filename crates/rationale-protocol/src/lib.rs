@@ -8,6 +8,82 @@ mod worker;
 
 pub use worker::{ProofUnavailable, ProofUnavailableReason, WorkerConfig, WorkerSupervisor};
 
+/// Number of bytes in the big-endian worker frame header.
+pub const FRAME_HEADER_BYTES: usize = 4;
+
+/// Failure to decode one complete length-prefixed worker frame.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum FrameDecodeError {
+    /// The input ended before the fixed-width length header.
+    #[error("worker frame header is incomplete")]
+    IncompleteHeader,
+    /// The declared payload exceeds the caller's allocation bound.
+    #[error("worker frame length {length} exceeds limit {limit}")]
+    FrameTooLarge {
+        /// Declared payload length.
+        length: usize,
+        /// Configured payload limit.
+        limit: usize,
+    },
+    /// The input ended before the declared payload length.
+    #[error("worker frame payload is incomplete: declared {declared}, available {available}")]
+    IncompletePayload {
+        /// Declared payload length.
+        declared: usize,
+        /// Bytes available after the header.
+        available: usize,
+    },
+    /// A complete frame was followed by unexpected bytes.
+    #[error("worker frame has {trailing} trailing bytes")]
+    TrailingBytes {
+        /// Bytes remaining after the declared payload.
+        trailing: usize,
+    },
+}
+
+/// Decode exactly one bounded length-prefixed worker frame without allocating.
+///
+/// # Errors
+///
+/// Returns a typed error for incomplete headers or payloads, oversized declared
+/// payloads, and trailing bytes.
+pub fn decode_frame(frame: &[u8], max_payload: usize) -> Result<&[u8], FrameDecodeError> {
+    let header: [u8; FRAME_HEADER_BYTES] = frame
+        .get(..FRAME_HEADER_BYTES)
+        .ok_or(FrameDecodeError::IncompleteHeader)?
+        .try_into()
+        .map_err(|_| FrameDecodeError::IncompleteHeader)?;
+    let length = checked_frame_length(header, max_payload)?;
+    let available = frame.len() - FRAME_HEADER_BYTES;
+    if available < length {
+        return Err(FrameDecodeError::IncompletePayload {
+            declared: length,
+            available,
+        });
+    }
+    if available > length {
+        return Err(FrameDecodeError::TrailingBytes {
+            trailing: available - length,
+        });
+    }
+    Ok(&frame[FRAME_HEADER_BYTES..])
+}
+
+fn checked_frame_length(
+    header: [u8; FRAME_HEADER_BYTES],
+    max_payload: usize,
+) -> Result<usize, FrameDecodeError> {
+    let length = u32::from_be_bytes(header) as usize;
+    if length > max_payload {
+        Err(FrameDecodeError::FrameTooLarge {
+            length,
+            limit: max_payload,
+        })
+    } else {
+        Ok(length)
+    }
+}
+
 /// Failure to encode a protocol value as canonical JSON.
 #[derive(Debug, Error)]
 pub enum CanonicalJsonError {
@@ -62,7 +138,7 @@ mod tests {
     use serde::de::DeserializeOwned;
     use serde_json::Value;
 
-    use super::to_canonical_json;
+    use super::{FrameDecodeError, decode_frame, to_canonical_json};
 
     fn fixture(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -135,5 +211,28 @@ mod tests {
             .expect("fixture should contain an error");
         let validator = validator_for(&schema("error.schema.json")).expect("schema should compile");
         assert!(validator.is_valid(error));
+    }
+
+    #[test]
+    fn frame_decoder_enforces_declared_length_and_bound() {
+        assert_eq!(decode_frame(&[0, 0, 0, 2, b'o', b'k'], 2), Ok(&b"ok"[..]));
+        assert_eq!(
+            decode_frame(&[0, 0, 0, 3, b'n', b'o'], 3),
+            Err(FrameDecodeError::IncompletePayload {
+                declared: 3,
+                available: 2,
+            })
+        );
+        assert_eq!(
+            decode_frame(&[0, 0, 0, 2, b'o', b'k'], 1),
+            Err(FrameDecodeError::FrameTooLarge {
+                length: 2,
+                limit: 1,
+            })
+        );
+        assert_eq!(
+            decode_frame(&[0, 0, 0, 1, b'o', b'k'], 2),
+            Err(FrameDecodeError::TrailingBytes { trailing: 1 })
+        );
     }
 }

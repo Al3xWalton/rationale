@@ -9,7 +9,7 @@ mod references;
 mod target;
 
 pub use local::LocalGitResolver;
-pub use target::TargetSpec;
+pub use target::{MAX_TARGET_BYTES, TargetSpec};
 
 /// Failure to resolve a target into explicit Git evidence.
 #[derive(Debug, Error)]
