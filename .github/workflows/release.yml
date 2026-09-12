@@ -17,6 +17,14 @@ jobs:
   package:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
+    # opam 2.5.2 predates https://github.com/ocaml/opam/pull/7073 and can race
+    # detached Git maintenance while initializing a repository (opam#7031).
+    env:
+      GIT_CONFIG_COUNT: 2
+      GIT_CONFIG_KEY_0: gc.autoDetach
+      GIT_CONFIG_VALUE_0: "false"
+      GIT_CONFIG_KEY_1: maintenance.autoDetach
+      GIT_CONFIG_VALUE_1: "false"
     strategy:
       fail-fast: false
       matrix:
