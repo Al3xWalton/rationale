@@ -8,6 +8,10 @@ supervisor. Its standard output is reserved for protocol messages; diagnostics
 go to standard error. Timeouts, malformed frames, and worker termination are
 reported as proof-unavailable failures and never converted into proof verdicts.
 
+Local Git targets must be normalized repository-relative paths. Absolute paths,
+parent traversal, Git-internal paths, and symlinks that escape the discovered
+worktree are rejected before content or history is read.
+
 Do not report suspected vulnerabilities in a public issue. Until a private
 security contact is published, keep reports private and do not include live
 credentials, private repository contents, or exploit data in test fixtures.

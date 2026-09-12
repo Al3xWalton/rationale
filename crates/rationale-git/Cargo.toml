@@ -1,0 +1,15 @@
+[package]
+name = "rationale-git"
+description = "Conservative local Git evidence resolution for Rationale"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+git2.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
