@@ -1680,6 +1680,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "rationale-engine",
+ "rationale-github",
  "rationale-mcp",
  "rationale-model",
  "rmcp",

@@ -1,0 +1,6 @@
+[
+  {
+    "sha": "{{COMPLETE_COMMIT}}",
+    "html_url": "https://github.com/rationale-labs/demo/commit/{{COMPLETE_COMMIT}}"
+  }
+]

@@ -14,6 +14,7 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 rationale-engine = { path = "../rationale-engine" }
+rationale-github = { path = "../rationale-github" }
 rationale-mcp = { path = "../rationale-mcp" }
 rationale-model = { path = "../rationale-model" }
 serde.workspace = true

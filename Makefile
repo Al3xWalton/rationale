@@ -1,10 +1,13 @@
 OPAM_SWITCH := rationale-5.5.1
 
-.PHONY: build fmt lint test verify
+.PHONY: build demo fmt lint test verify
 
 build:
 	opam exec --switch=$(OPAM_SWITCH) -- dune build --root ocaml @all
 	cargo build --workspace
+
+demo:
+	scripts/run-demo.sh
 
 fmt:
 	cargo fmt --all

@@ -4,6 +4,7 @@ use std::{path::PathBuf, process::ExitCode};
 
 use clap::{Parser, Subcommand};
 use rationale_engine::{Engine, EngineError, WhyResult};
+use rationale_github::GitHubClient;
 use rationale_model::{EvidenceNode, KernelResponse, Verdict};
 
 const EXIT_OK: u8 = 0;
@@ -21,6 +22,8 @@ struct Cli {
     database: Option<PathBuf>,
     #[arg(long, global = true, value_name = "PATH")]
     worker: Option<PathBuf>,
+    #[arg(long, global = true, value_name = "URL", hide = true)]
+    github_api_base: Option<String>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -93,7 +96,9 @@ async fn main() -> ExitCode {
 async fn run(cli: Cli) -> Result<u8, EngineError> {
     let engine = Engine::discover(".", cli.database)?.with_worker_path(cli.worker);
     match cli.command {
-        Commands::Sync { local, json } => run_sync(&engine, local, json).await,
+        Commands::Sync { local, json } => {
+            run_sync(&engine, local, json, cli.github_api_base.as_deref()).await
+        }
         Commands::Why { target, json } => {
             let result = engine.why(&target).await?;
             if json {
@@ -151,9 +156,17 @@ async fn run(cli: Cli) -> Result<u8, EngineError> {
     }
 }
 
-async fn run_sync(engine: &Engine, local: bool, json: bool) -> Result<u8, EngineError> {
+async fn run_sync(
+    engine: &Engine,
+    local: bool,
+    json: bool,
+    github_api_base: Option<&str>,
+) -> Result<u8, EngineError> {
     let report = if local {
         engine.sync_local()?
+    } else if let Some(api_base) = github_api_base {
+        let client = GitHubClient::with_api_base(api_base, None)?;
+        engine.sync_with_github_client(&client).await?
     } else {
         engine.sync().await?
     };

@@ -2,7 +2,7 @@
 
 use std::{env, fs, path::PathBuf, process::Command, time::Duration};
 
-use rationale_model::{Conflict, EdgeKind, KernelRequest, NodeKind};
+use rationale_model::{Conflict, EdgeKind, KernelRequest, KernelResponse, NodeKind, Verdict};
 use rationale_protocol::{
     ProofUnavailableReason, WorkerConfig, WorkerSupervisor, to_canonical_json,
 };
@@ -134,6 +134,44 @@ async fn real_worker_matches_every_golden_verdict() {
             "golden response changed for {name}"
         );
     }
+}
+
+#[tokio::test]
+async fn removing_each_decisive_edge_downgrades_the_complete_proof() {
+    let Some(supervisor) = supervisor().await else {
+        eprintln!("skipping cross-language test: RATIONALE_KERNEL_WORKER is unset");
+        return;
+    };
+    let mut complete = request();
+    complete.goal.anchor_kinds = vec![NodeKind::Decision];
+    let response = supervisor
+        .evaluate(complete.clone())
+        .await
+        .expect("complete proof should evaluate");
+    assert_eq!(proof_verdict(&response), Verdict::Established);
+
+    for (kind, expected) in [
+        (EdgeKind::IntroducedBy, Verdict::NotEstablished),
+        (EdgeKind::IncludedInPr, Verdict::Partial),
+        (EdgeKind::ResolvesIssue, Verdict::Partial),
+        (EdgeKind::Documents, Verdict::Partial),
+    ] {
+        let mut mutated = complete.clone();
+        mutated.request_id = format!("mutation-{kind:?}");
+        mutated.edges.retain(|edge| edge.kind != kind);
+        let response = supervisor
+            .evaluate(mutated)
+            .await
+            .expect("mutated proof should evaluate");
+        assert_eq!(proof_verdict(&response), expected, "removed {kind:?}");
+    }
+}
+
+fn proof_verdict(response: &KernelResponse) -> Verdict {
+    let KernelResponse::Proof { proof, .. } = response else {
+        panic!("kernel should return a proof response");
+    };
+    proof.verdict
 }
 
 #[tokio::test]

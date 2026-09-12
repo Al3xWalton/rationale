@@ -32,8 +32,8 @@ read-only MCP tools are available over local stdio.
 - Rationale never calls a language model. An external agent may explain its
   structured results without changing their verdicts.
 
-The approved implementation proceeds as a thin end-to-end proof path before
-adding GitHub synchronization, candidate ranking, or performance tuning.
+The implementation follows one thin end-to-end proof path, with every later
+source and presentation layer preserving the same deterministic proof contract.
 
 ## Local CLI
 
@@ -75,6 +75,24 @@ prose:
 
 Rationale stores local state under `.rationale/` by default. It ignores that
 directory when reporting changed working-copy gaps.
+
+### Public offline demo
+
+Run the complete synthetic demonstration with one command:
+
+```sh
+make demo
+```
+
+The command creates a new repository with fixed authorship and timestamps,
+replays recorded GitHub API responses on loopback, and prints all four kernel
+verdicts. It then advances from two conflicting decisions to a follow-up commit
+that explicitly supersedes the old outcome. The incomplete case ranks a nearby
+Story while showing that the suggestion cannot enter the proof.
+
+The generated repository is retained at the printed temporary path for
+inspection. It contains no AVA code or data. Pass a new directory to
+`scripts/run-demo.sh` if you want a predictable location.
 
 ### GitHub synchronization
 

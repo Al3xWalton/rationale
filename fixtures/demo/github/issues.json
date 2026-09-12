@@ -1,0 +1,32 @@
+[
+  {
+    "number": 101,
+    "title": "Bound checkout duration",
+    "body": "The checkout path must stop waiting within a documented bound.",
+    "state": "closed",
+    "html_url": "https://github.com/rationale-labs/demo/issues/101",
+    "updated_at": "2026-01-01T12:00:00Z"
+  },
+  {
+    "number": 11,
+    "title": "Implement bounded checkout timeout",
+    "body": "Fixes #101",
+    "state": "closed",
+    "html_url": "https://github.com/rationale-labs/demo/pull/11",
+    "updated_at": "2026-01-01T12:01:00Z",
+    "pull_request": {
+      "url": "https://api.github.com/repos/rationale-labs/demo/pulls/11"
+    }
+  },
+  {
+    "number": 22,
+    "title": "Add checkout retry guard",
+    "body": "Candidate STORY-202 still needs an explicit closing relationship.",
+    "state": "open",
+    "html_url": "https://github.com/rationale-labs/demo/pull/22",
+    "updated_at": "2026-01-01T12:02:00Z",
+    "pull_request": {
+      "url": "https://api.github.com/repos/rationale-labs/demo/pulls/22"
+    }
+  }
+]

@@ -1,0 +1,7 @@
+version = 1
+
+[verification]
+id = "VERIFY-0101"
+artifact = "fixtures/checkout-timeout-test.json"
+targets = ["ADR-0101"]
+status = "current"
