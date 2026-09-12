@@ -316,6 +316,29 @@ impl EvidenceStore {
             .transpose()
     }
 
+    /// Load one record only if it belongs to the current published snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StoreError` if the current view cannot be read or decoded.
+    pub fn current_record(&self, record_id: &str) -> Result<Option<EvidenceNode>, StoreError> {
+        let json: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT records.content_json
+                 FROM current_snapshot
+                 JOIN snapshot_records
+                   ON snapshot_records.snapshot_id = current_snapshot.snapshot_id
+                 JOIN records ON records.id = snapshot_records.record_id
+                 WHERE current_snapshot.singleton = 1 AND records.id = ?1",
+                [record_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        json.map(|json| serde_json::from_str(&json).map_err(StoreError::from))
+            .transpose()
+    }
+
     /// Inspect source freshness for the current published snapshot.
     ///
     /// # Errors

@@ -5,14 +5,12 @@ shows the missing link when it is not.
 
 ## Status
 
-Rationale now has its first cross-language proof slice. Rust can supervise the
-long-lived OCaml kernel and evaluate bounded synthetic evidence into canonical
-established, partial, not-established, or conflicted results. Repository
-evidence can also be published as atomic immutable SQLite snapshots. Repository
-line targets can be resolved into explicit local Git blame and rename-aware
-history. Namespaced repository documents and verification manifests can supply
-explicit decisions and relationships. The CLI and MCP surfaces are still under
-development.
+Rationale now has a complete offline proof slice. The Rust CLI synchronizes
+local Git history and namespaced repository documents into an atomic SQLite
+snapshot, resolves real lines through blame and rename-aware history, and asks
+the long-lived OCaml kernel for a canonical established, partial,
+not-established, or conflicted result. Candidate ranking, GitHub synchronization,
+and the MCP surface are still under development.
 
 ## Architecture
 
@@ -32,6 +30,47 @@ development.
 
 The approved implementation proceeds as a thin end-to-end proof path before
 adding GitHub synchronization, candidate ranking, or performance tuning.
+
+## Local CLI
+
+Build the worker and CLI, then synchronize a repository from anywhere inside
+its working tree:
+
+```sh
+opam exec --switch=rationale-5.5.1 -- dune build --root ocaml @all
+cargo build --release --bin rationale
+
+./target/release/rationale sync --local
+RATIONALE_KERNEL_WORKER="$PWD/ocaml/_build/default/worker/main.exe" \
+  ./target/release/rationale why src/lib.rs:42
+```
+
+The local commands are:
+
+```text
+rationale sync --local
+rationale why <path:line|path:start-end@revision|commit:revision>
+rationale show <record-id>
+rationale gaps --changed
+```
+
+Add `--json` to any command for structured output. Human `why` output always
+orders the verdict, proof paths, gaps, non-proving candidates, and source
+freshness. The CLI uses stable exit categories so scripts never need to parse
+prose:
+
+| Exit | Category | Meaning |
+| ---: | --- | --- |
+| 0 | success | The command succeeded or rationale was established. |
+| 1 | operational | Local storage, filesystem, or resource-bound failure. |
+| 2 | missing rationale | A record or admissible proof path is missing. |
+| 3 | conflict | Current explicit evidence conflicts. |
+| 4 | invalid input | The target, path, revision, or kernel request is invalid. |
+| 5 | stale source | The result used incomplete or stale source history. |
+| 6 | proof unavailable | The authoritative OCaml worker could not return a proof. |
+
+Rationale stores local state under `.rationale/` by default. It ignores that
+directory when reporting changed working-copy gaps.
 
 ## Development
 

@@ -1,0 +1,23 @@
+[package]
+name = "rationale-cli"
+description = "Command-line interface for Rationale"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "rationale"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+rationale-engine = { path = "../rationale-engine" }
+rationale-model = { path = "../rationale-model" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

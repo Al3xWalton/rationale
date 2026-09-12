@@ -151,6 +151,39 @@ pub struct PathChange {
     pub deleted: bool,
 }
 
+/// Bounded commit history used during local evidence synchronization.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommitHistory {
+    /// Commits in topological, newest-first order.
+    pub commits: Vec<CommitEvidence>,
+    /// False when a shallow boundary or configured cap truncated the walk.
+    pub complete: bool,
+}
+
+/// Category of a changed working-copy path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkingChangeKind {
+    /// New index or working-tree path.
+    Added,
+    /// Modified index or working-tree path.
+    Modified,
+    /// Deleted index or working-tree path.
+    Deleted,
+    /// Renamed index or working-tree path.
+    Renamed,
+    /// Conflicted path.
+    Conflicted,
+}
+
+/// One normalized changed path in the index or working tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkingChange {
+    /// Repository-relative UTF-8 path.
+    pub path: String,
+    /// Coarse change category.
+    pub kind: WorkingChangeKind,
+}
+
 /// Resolved local Git evidence for a commit or line range.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ResolvedTarget {

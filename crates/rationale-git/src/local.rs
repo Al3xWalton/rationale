@@ -4,11 +4,13 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use git2::{Blame, BlameOptions, Delta, DiffFindOptions, Oid, Repository, Sort, Status};
+use git2::{
+    Blame, BlameOptions, Delta, DiffFindOptions, Oid, Repository, Sort, Status, StatusOptions,
+};
 
 use crate::{
-    CommitEvidence, GitEvidenceError, GitResolver, LineAttribution, PathChange, ResolvedTarget,
-    TargetSpec, TargetState, references,
+    CommitEvidence, CommitHistory, GitEvidenceError, GitResolver, LineAttribution, PathChange,
+    ResolvedTarget, TargetSpec, TargetState, WorkingChange, WorkingChangeKind, references,
 };
 
 const DEFAULT_HISTORY_LIMIT: usize = 1_024;
@@ -54,6 +56,83 @@ impl LocalGitResolver {
     pub fn with_history_limit(mut self, history_limit: usize) -> Self {
         self.history_limit = history_limit.max(1);
         self
+    }
+
+    /// Read bounded topological commit history for local synchronization.
+    ///
+    /// # Errors
+    ///
+    /// Returns `GitEvidenceError` when HEAD or the revision walk cannot be read.
+    pub fn commit_history(&self) -> Result<CommitHistory, GitEvidenceError> {
+        let mut walk = self
+            .repository
+            .revwalk()
+            .map_err(|error| git_error(&error))?;
+        walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
+            .map_err(|error| git_error(&error))?;
+        walk.push_head().map_err(|error| git_error(&error))?;
+        let mut commits = Vec::new();
+        let mut complete = !self.repository.path().join("shallow").is_file()
+            && !self.repository.commondir().join("shallow").is_file();
+        for oid in walk {
+            if commits.len() >= self.history_limit {
+                complete = false;
+                break;
+            }
+            let oid = oid.map_err(|error| git_error(&error))?;
+            let commit = self
+                .repository
+                .find_commit(oid)
+                .map_err(|error| git_error(&error))?;
+            commits.push(commit_evidence(&commit));
+        }
+        Ok(CommitHistory { commits, complete })
+    }
+
+    /// Return normalized paths changed in the index or working tree.
+    ///
+    /// # Errors
+    ///
+    /// Returns `GitEvidenceError` if Git status cannot be read or a path is not
+    /// valid UTF-8.
+    pub fn working_changes(&self) -> Result<Vec<WorkingChange>, GitEvidenceError> {
+        let mut options = StatusOptions::new();
+        options
+            .include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .renames_head_to_index(true)
+            .renames_index_to_workdir(true);
+        let statuses = self
+            .repository
+            .statuses(Some(&mut options))
+            .map_err(|error| git_error(&error))?;
+        let mut changes = Vec::new();
+        for entry in statuses.iter() {
+            let path = entry.path().map_err(|_| GitEvidenceError::InvalidPath {
+                detail: "changed path is not valid UTF-8".to_owned(),
+            })?;
+            if path == ".rationale" || path.starts_with(".rationale/") {
+                continue;
+            }
+            let status = entry.status();
+            let kind = if status.is_conflicted() {
+                WorkingChangeKind::Conflicted
+            } else if status.intersects(Status::WT_DELETED | Status::INDEX_DELETED) {
+                WorkingChangeKind::Deleted
+            } else if status.intersects(Status::WT_RENAMED | Status::INDEX_RENAMED) {
+                WorkingChangeKind::Renamed
+            } else if status.intersects(Status::WT_NEW | Status::INDEX_NEW) {
+                WorkingChangeKind::Added
+            } else {
+                WorkingChangeKind::Modified
+            };
+            changes.push(WorkingChange {
+                path: path.replace('\\', "/"),
+                kind,
+            });
+        }
+        changes.sort_by(|left, right| left.path.cmp(&right.path));
+        Ok(changes)
     }
 
     fn resolve_commit(&self, revision: &str) -> Result<git2::Commit<'_>, GitEvidenceError> {

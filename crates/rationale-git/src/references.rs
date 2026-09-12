@@ -23,7 +23,11 @@ pub(crate) fn extract(message: &str) -> Vec<ExplicitReference> {
             };
             references.push(ExplicitReference {
                 kind,
-                value: format!("#{number}"),
+                value: if kind == ReferenceKind::Story {
+                    format!("STORY-{number}")
+                } else {
+                    format!("#{number}")
+                },
             });
             continue;
         }
@@ -80,7 +84,7 @@ mod tests {
                 },
                 ExplicitReference {
                     kind: ReferenceKind::Story,
-                    value: "#12".to_owned(),
+                    value: "STORY-12".to_owned(),
                 },
                 ExplicitReference {
                     kind: ReferenceKind::Decision,
