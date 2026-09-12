@@ -8,7 +8,8 @@ shows the missing link when it is not.
 Rationale now has its first cross-language proof slice. Rust can supervise the
 long-lived OCaml kernel and evaluate bounded synthetic evidence into canonical
 established, partial, not-established, or conflicted results. Repository
-ingestion, persistence, CLI, and MCP surfaces are still under development.
+evidence can also be published as atomic immutable SQLite snapshots. Repository
+ingestion, CLI, and MCP surfaces are still under development.
 
 ## Architecture
 
@@ -17,6 +18,8 @@ ingestion, persistence, CLI, and MCP surfaces are still under development.
 - A versioned process protocol keeps the language boundary explicit.
 - Four-byte length-prefixed frames, deadlines, and bounded restart keep worker
   failure observable without inventing a fallback verdict.
+- SQLite holds immutable evidence and exposes only complete current snapshots to
+  proof readers, even while the next synchronization is being assembled.
 - Rationale never calls a language model. An external agent may explain its
   structured results without changing their verdicts.
 
