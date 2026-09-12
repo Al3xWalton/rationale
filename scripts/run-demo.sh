@@ -17,19 +17,27 @@ fi
 
 "$SCRIPT_DIRECTORY/create-demo-repo.sh" "$DEMO_REPOSITORY"
 READY_FILE="$DEMO_REPOSITORY/.git/rationale-demo-fixtures/server-url"
+SERVER_LOG="$DEMO_REPOSITORY/.git/rationale-demo-fixtures/server.log"
 python3 "$SCRIPT_DIRECTORY/replay-demo-github.py" \
-    "$DEMO_REPOSITORY" --ready-file "$READY_FILE" &
+    "$DEMO_REPOSITORY" --ready-file "$READY_FILE" > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT HUP INT TERM
 
 attempt=0
 while [ ! -s "$READY_FILE" ]; do
-    attempt=$((attempt + 1))
-    if [ "$attempt" -ge 100 ]; then
-        echo "fixture server did not start" >&2
+    if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+        wait "$SERVER_PID" || true
+        sed -n '1,120p' "$SERVER_LOG" >&2
+        echo "fixture server exited before becoming ready" >&2
         exit 70
     fi
-    sleep 0.05
+    attempt=$((attempt + 1))
+    if [ "$attempt" -ge 300 ]; then
+        sed -n '1,120p' "$SERVER_LOG" >&2
+        echo "fixture server did not start within 30 seconds" >&2
+        exit 70
+    fi
+    sleep 0.1
 done
 IFS= read -r API_BASE < "$READY_FILE"
 
