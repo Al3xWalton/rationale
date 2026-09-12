@@ -85,6 +85,17 @@ rationale:
         ]);
     }
 
+    fn commit_without_reference(&self) {
+        self.write("src/checkout.txt", "retry checkout\n");
+        self.git(&["add", "."]);
+        self.git(&[
+            "commit",
+            "--quiet",
+            "-m",
+            "feat(checkout): define checkout retry policy",
+        ]);
+    }
+
     fn rationale(&self, arguments: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_rationale"))
             .args(arguments)
@@ -159,6 +170,7 @@ fn generated_repository_supports_all_local_commands() {
     let proof = json(&why_json);
     assert_eq!(proof["response"]["status"], "proof");
     assert_eq!(proof["response"]["proof"]["verdict"], "established");
+    assert_eq!(proof["candidates"], serde_json::json!([]));
     assert_eq!(
         proof["response"]["proof"]["proof_chains"][0]["node_ids"][2],
         "STORY-1"
@@ -230,6 +242,86 @@ fn exit_categories_keep_missing_invalid_and_unavailable_distinct() {
     ]);
     assert_exit(&unavailable, 6);
     assert_eq!(json(&unavailable)["error"]["category"], "proof_unavailable");
+}
+
+#[test]
+fn candidate_records_are_ranked_without_changing_the_verdict() {
+    let Some(worker) = worker_path() else {
+        eprintln!("skipping cross-language test: RATIONALE_KERNEL_WORKER is unset");
+        return;
+    };
+    let repository = TestRepository::new();
+    repository.commit_without_reference();
+    let database = ".rationale/candidates.db";
+    let worker = worker.to_string_lossy();
+
+    assert_exit(
+        &repository.rationale(&["--database", database, "sync", "--local"]),
+        0,
+    );
+    let before = repository.rationale(&[
+        "--database",
+        database,
+        "--worker",
+        &worker,
+        "why",
+        "src/checkout.txt:1",
+        "--json",
+    ]);
+    assert_exit(&before, 2);
+    let before = json(&before);
+    assert_eq!(before["response"]["proof"]["verdict"], "partial");
+    assert_eq!(before["candidates"], serde_json::json!([]));
+
+    repository.write(
+        "governance/STORY-9.md",
+        r"---
+rationale:
+  id: STORY-9
+  kind: work_item
+  subject_id: checkout-retry-policy
+  status: accepted
+---
+
+# Checkout retry policy
+",
+    );
+    assert_exit(
+        &repository.rationale(&["--database", database, "sync", "--local"]),
+        0,
+    );
+    let after = repository.rationale(&[
+        "--database",
+        database,
+        "--worker",
+        &worker,
+        "why",
+        "src/checkout.txt:1",
+        "--json",
+    ]);
+    assert_exit(&after, 2);
+    let after = json(&after);
+    assert_eq!(after["response"]["proof"]["verdict"], "partial");
+    assert_eq!(after["candidates"][0]["record_id"], "STORY-9");
+    assert_eq!(after["candidates"][0]["score_version"], 1);
+    assert!(!after["response"].to_string().contains("STORY-9"));
+    let components = &after["candidates"][0]["components"];
+    let reconstructed = u64::from(components["exact_identifier"] == true) * 1_000
+        + components["token_overlap"]
+            .as_u64()
+            .expect("token score should be numeric")
+            * 100
+        + components["path_segment_overlap"]
+            .as_u64()
+            .expect("path score should be numeric")
+            * 20
+        + components["source_recency"]
+            .as_u64()
+            .expect("recency score should be numeric");
+    assert_eq!(
+        after["candidates"][0]["score"],
+        serde_json::json!(reconstructed)
+    );
 }
 
 fn path_string(path: &Path) -> &str {

@@ -1,7 +1,7 @@
 //! Offline orchestration across Git, documents, snapshots, and the proof worker.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Component, Path, PathBuf},
     str::FromStr,
@@ -23,6 +23,10 @@ use rationale_store::{
 };
 use serde::Serialize;
 use thiserror::Error;
+
+mod candidate;
+
+use candidate::{CandidateQuery, rank_candidates};
 
 const MAX_DOCUMENT_BYTES: u64 = 1024 * 1024;
 const MAX_SCANNED_ENTRIES: usize = 100_000;
@@ -72,12 +76,42 @@ pub struct SyncReport {
     pub history_complete: bool,
 }
 
-/// Empty in Story 8; reserved for later non-proving ranked evidence.
+/// Auditable components in candidate scoring version 1.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct CandidateScoreComponents {
+    /// Whether the complete query exactly matched the record identifier.
+    pub exact_identifier: bool,
+    /// Number of exact normalized tokens shared with the record, capped at eight.
+    pub token_overlap: u16,
+    /// Number of exact path segments shared with the record origin, capped at four.
+    pub path_segment_overlap: u16,
+    /// Bounded age bucket from zero (unknown or old) to four (newest).
+    pub source_recency: u16,
+}
+
+impl CandidateScoreComponents {
+    /// Reconstruct the version 1 score from its public components.
+    #[must_use]
+    pub fn score_v1(&self) -> u32 {
+        u32::from(self.exact_identifier) * 1_000
+            + u32::from(self.token_overlap) * 100
+            + u32::from(self.path_segment_overlap) * 20
+            + u32::from(self.source_recency)
+    }
+}
+
+/// One ranked suggestion that is never supplied to the proof kernel as a claim.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct CandidateView {
     /// Candidate record identifier.
     pub record_id: String,
-    /// Auditable non-proof reason the record was suggested.
+    /// Version of the deterministic scoring contract.
+    pub score_version: u16,
+    /// Total score reconstructed from `components`.
+    pub score: u32,
+    /// Individual bounded score inputs.
+    pub components: CandidateScoreComponents,
+    /// Fixed-template non-proof reason the record was suggested.
     pub reason: String,
 }
 
@@ -301,6 +335,7 @@ impl Engine {
             })?
             .ok_or(EngineError::NoSnapshot)?;
         let snapshot_id = slice.snapshot_id.clone();
+        let candidate_records = slice.nodes.clone();
         let mut nodes: BTreeMap<_, _> = slice
             .nodes
             .into_iter()
@@ -330,6 +365,8 @@ impl Engine {
         };
         let supervisor = WorkerSupervisor::start(worker_config).await?;
         let response = supervisor.evaluate(request).await?;
+        let candidates =
+            candidates_for_response(&response, target, &target_evidence, &candidate_records);
         let freshness = slice
             .sources
             .into_iter()
@@ -347,7 +384,7 @@ impl Engine {
         Ok(WhyResult {
             target: target.to_owned(),
             response,
-            candidates: Vec::new(),
+            candidates,
             freshness,
         })
     }
@@ -553,7 +590,9 @@ fn commit_node(commit: &CommitEvidence) -> EvidenceNode {
             source_kind: SourceKind::Git,
             locator: format!("commit:{}", commit.id),
             revision: Some(commit.id.clone()),
-            observed_at: None,
+            observed_at: jiff::Timestamp::from_second(commit.committed_at)
+                .ok()
+                .map(|timestamp| timestamp.to_string()),
         },
     }
 }
@@ -708,4 +747,58 @@ fn changed_gap(change: WorkingChange) -> ChangedGap {
         path: change.path,
         code: code.to_owned(),
     }
+}
+
+fn candidates_for_response(
+    response: &KernelResponse,
+    target: &str,
+    evidence: &ResolvedTarget,
+    records: &[EvidenceNode],
+) -> Vec<CandidateView> {
+    let KernelResponse::Proof { proof, .. } = response else {
+        return Vec::new();
+    };
+    if matches!(
+        proof.verdict,
+        rationale_model::Verdict::Established | rationale_model::Verdict::Conflicted
+    ) {
+        return Vec::new();
+    }
+
+    let mut excluded: BTreeSet<_> = proof
+        .gaps
+        .iter()
+        .filter_map(|gap| gap.from_node_id.clone())
+        .collect();
+    let mut text = target.to_owned();
+    let path = match evidence {
+        ResolvedTarget::Commit { commit, .. } => {
+            excluded.insert(commit.id.clone());
+            text.push('\n');
+            text.push_str(&commit.summary);
+            None
+        }
+        ResolvedTarget::Lines {
+            path,
+            introduced_by,
+            changed_by,
+            ..
+        } => {
+            excluded.extend(introduced_by.iter().map(|item| item.commit_id.clone()));
+            for change in changed_by {
+                text.push('\n');
+                text.push_str(&change.commit.summary);
+            }
+            Some(path.as_str())
+        }
+    };
+    rank_candidates(
+        CandidateQuery {
+            exact: target,
+            text: &text,
+            path,
+        },
+        records,
+        &excluded,
+    )
 }

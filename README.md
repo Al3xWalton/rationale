@@ -9,8 +9,9 @@ Rationale now has a complete offline proof slice. The Rust CLI synchronizes
 local Git history and namespaced repository documents into an atomic SQLite
 snapshot, resolves real lines through blame and rename-aware history, and asks
 the long-lived OCaml kernel for a canonical established, partial,
-not-established, or conflicted result. Candidate ranking, GitHub synchronization,
-and the MCP surface are still under development.
+not-established, or conflicted result. Partial and absent proofs include
+auditable non-proving candidate records. GitHub synchronization and the MCP
+surface are still under development.
 
 ## Architecture
 
@@ -71,6 +72,19 @@ prose:
 
 Rationale stores local state under `.rationale/` by default. It ignores that
 directory when reporting changed working-copy gaps.
+
+### Candidate evidence
+
+Candidate records are ranked only after the OCaml kernel returns a partial or
+not-established verdict. Scoring version 1 assigns 1,000 points for an exact
+identifier, 100 per exact normalized token (up to eight), 20 per exact path
+segment (up to four), and a zero-to-four bounded recency bucket. Equal scores
+sort by stable record ID. The JSON response includes every component needed to
+reconstruct the total.
+
+Candidate scores and candidate designations are suggestions, not evidence
+relationships: neither enters a kernel request or proof path, and selecting or
+omitting a suggestion cannot promote a verdict.
 
 ## Development
 

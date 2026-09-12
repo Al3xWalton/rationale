@@ -220,7 +220,10 @@ fn print_why(result: &WhyResult) {
         println!("  none");
     } else {
         for candidate in &result.candidates {
-            println!("  {} — {}", candidate.record_id, candidate.reason);
+            println!(
+                "  {} [v{} score {}] — {}",
+                candidate.record_id, candidate.score_version, candidate.score, candidate.reason
+            );
         }
     }
     println!("Freshness:");
