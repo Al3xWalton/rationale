@@ -3,6 +3,36 @@
 Rationale proves whether a line of code is connected to recorded intent—and
 shows the missing link when it is not.
 
+![Abridged Rationale terminal output showing an established evidence chain beside a partial result with one missing relationship](docs/demo.svg)
+
+## Try it in 60 seconds
+
+The release archive contains the Rust CLI, its adjacent OCaml proof worker, and
+the offline demonstration. It needs Git and Python 3, but no Rust or OCaml
+installation:
+
+```sh
+VERSION=v0.1.0
+TARGET=aarch64-apple-darwin       # use x86_64-unknown-linux-gnu on Linux
+ARCHIVE="rationale-${VERSION}-${TARGET}.tar.gz"
+
+curl -fLO "https://github.com/Al3xWalton/rationale/releases/download/${VERSION}/${ARCHIVE}"
+curl -fLO "https://github.com/Al3xWalton/rationale/releases/download/${VERSION}/${ARCHIVE}.sha256"
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256sum -c "${ARCHIVE}.sha256"
+else
+  shasum -a 256 -c "${ARCHIVE}.sha256"
+fi
+tar -xzf "$ARCHIVE"
+cd "${ARCHIVE%.tar.gz}"
+./scripts/run-demo.sh
+```
+
+The demo creates a disposable repository and shows established, partial,
+not-established, conflicted, and explicitly resolved results. To install after
+the demo, place `rationale` and `rationale-kernel-worker` together somewhere on
+your `PATH`; the CLI discovers its companion automatically.
+
 ## Status
 
 Rationale now has a complete hybrid proof slice. The Rust CLI synchronizes local
@@ -31,6 +61,12 @@ read-only MCP tools are available over local stdio.
   and marks it stale.
 - Rationale never calls a language model. An external agent may explain its
   structured results without changing their verdicts.
+
+The split is deliberately small. Rust handles untrusted files, Git, SQLite,
+GitHub, the CLI, and MCP; OCaml receives a bounded typed graph and owns only the
+pure proof decision. Keeping the kernel behind a versioned process boundary
+makes that authority visible and independently testable. At the current
+AVA-like baseline, the long-lived worker boundary adds an estimated 0.061 ms.
 
 The implementation follows one thin end-to-end proof path, with every later
 source and presentation layer preserving the same deterministic proof contract.
@@ -182,6 +218,44 @@ Run `rationale sync` in that repository before the agent queries it, or
 `rationale sync --local` for an offline-only snapshot. MCP success payloads use
 the same structured result objects as CLI `--json`.
 
+## Limitations and non-goals
+
+- Version one proves only explicit supported relationships. It does not infer an
+  author's intent, recover hidden reasoning, or treat co-change and textual
+  similarity as evidence.
+- Direct query targets are committed line ranges and commits. Symbols, pull
+  requests, and work-item identifiers can appear in evidence but are not direct
+  version-one target syntax.
+- Repository documents must use Rationale's namespaced metadata. Malformed or
+  oversized records are quarantined rather than guessed at.
+- GitHub synchronization supports GitHub repositories and explicit API-native
+  pull-request membership and closing relationships. Queries use the last local
+  snapshot; they do not make live network calls.
+- Candidate ranking is bounded exact-token and path matching. It is a repair aid,
+  not semantic search and never proof.
+- MCP is local stdio and read-only. Rationale does not edit records, call a model,
+  or generate explanatory prose.
+- Prebuilt version-one packages cover Apple-silicon macOS and x86-64 Linux. Other
+  targets currently require an unsupported source build.
+
+## Related work
+
+[LocalityBench](https://github.com/Al3xWalton/locality-bench) is an independent,
+in-progress benchmark about choosing local, remote, or hybrid execution for
+personalized agent tasks. Its current diagnostic is not claim-eligible;
+Rationale borrows no placement result from it.
+
+[SWE-Story](https://github.com/Al3xWalton/swe-story) is an independent proposed
+benchmark for the correctness and human reviewability of agent-authored Git
+histories. It currently supports no empirical claim. Rationale instead treats
+observable repository records as evidence and never presents commits as a
+transcript of a model's hidden reasoning.
+
+Together they occupy different portfolio roles: LocalityBench studies where an
+agent should run, SWE-Story asks how agent work should be evaluated, and
+Rationale is the developer tool that checks whether implementation remains tied
+to recorded intent.
+
 ## Development
 
 Rust 1.98.0 is pinned through `rust-toolchain.toml`. OCaml uses a named opam
@@ -205,9 +279,13 @@ sources under the repository policy. `make fuzz-check` compiles the bounded
 protocol-frame, Git-target, and document-metadata fuzz harnesses. Run campaigns
 with a nightly Rust toolchain and `cargo fuzz run <target>` from `fuzz/`.
 
+`make release-smoke` builds a host archive and tests the extracted CLI, offline
+demo, manifest, checksums, companion-worker discovery, and MCP connection. See
+[docs/RELEASING.md](docs/RELEASING.md) for clean-runner packaging and tag gates.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the Story and commit conventions.
 
 ## License
 
-No public license has been selected yet. All rights are reserved until a license
-file is added.
+Licensed under the [Apache License 2.0](LICENSE). Redistributions retain the
+project attribution recorded in [NOTICE](NOTICE).

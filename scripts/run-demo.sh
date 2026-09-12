@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-SCRIPT_DIRECTORY=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
-PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIRECTORY/.." && pwd -P)
+SCRIPT_DIRECTORY=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+PROJECT_ROOT=$(CDPATH='' cd -- "$SCRIPT_DIRECTORY/.." && pwd -P)
 
 if [ "$#" -gt 1 ]; then
     echo "usage: $0 [TARGET_DIRECTORY]" >&2
@@ -33,32 +33,44 @@ while [ ! -s "$READY_FILE" ]; do
 done
 IFS= read -r API_BASE < "$READY_FILE"
 
-opam exec --switch=rationale-5.5.1 -- dune build --root "$PROJECT_ROOT/ocaml" @all
-cargo build --quiet --manifest-path "$PROJECT_ROOT/Cargo.toml" --bin rationale
-RATIONALE="$PROJECT_ROOT/target/debug/rationale"
-WORKER="$PROJECT_ROOT/ocaml/_build/default/worker/main.exe"
+if [ -n "${RATIONALE_BIN:-}" ]; then
+    RATIONALE_BINARY=$RATIONALE_BIN
+    RATIONALE_WORKER_BINARY=${RATIONALE_KERNEL_WORKER:-"$(dirname -- "$RATIONALE_BINARY")/rationale-kernel-worker"}
+elif [ -x "$PROJECT_ROOT/rationale" ] && [ -x "$PROJECT_ROOT/rationale-kernel-worker" ]; then
+    RATIONALE_BINARY="$PROJECT_ROOT/rationale"
+    RATIONALE_WORKER_BINARY="$PROJECT_ROOT/rationale-kernel-worker"
+else
+    opam exec --switch=rationale-5.5.1 -- dune build --root "$PROJECT_ROOT/ocaml" @all
+    cargo build --quiet --manifest-path "$PROJECT_ROOT/Cargo.toml" --bin rationale
+    RATIONALE_BINARY="$PROJECT_ROOT/target/debug/rationale"
+    RATIONALE_WORKER_BINARY="$PROJECT_ROOT/ocaml/_build/default/worker/main.exe"
+fi
+if [ ! -x "$RATIONALE_BINARY" ] || [ ! -x "$RATIONALE_WORKER_BINARY" ]; then
+    echo "rationale release executables are unavailable" >&2
+    exit 66
+fi
 DATABASE=.rationale/demo.db
 
 git -C "$DEMO_REPOSITORY" checkout --quiet demo-conflict
 (
     cd "$DEMO_REPOSITORY"
-    "$RATIONALE" --database "$DATABASE" --github-api-base "$API_BASE" sync
+    "$RATIONALE_BINARY" --database "$DATABASE" --github-api-base "$API_BASE" sync
     printf '\nComplete — code to recorded intent\n'
-    "$RATIONALE" --database "$DATABASE" --worker "$WORKER" why src/complete.rs:2
+    "$RATIONALE_BINARY" --database "$DATABASE" --worker "$RATIONALE_WORKER_BINARY" why src/complete.rs:2
     printf '\nIncomplete — candidate is separate from proof\n'
-    "$RATIONALE" --database "$DATABASE" --worker "$WORKER" why src/incomplete.rs:2 || test "$?" -eq 2
+    "$RATIONALE_BINARY" --database "$DATABASE" --worker "$RATIONALE_WORKER_BINARY" why src/incomplete.rs:2 || test "$?" -eq 2
     printf '\nAbsent — no relationship leaves the commit\n'
-    "$RATIONALE" --database "$DATABASE" --worker "$WORKER" why commit:demo-absent || test "$?" -eq 2
+    "$RATIONALE_BINARY" --database "$DATABASE" --worker "$RATIONALE_WORKER_BINARY" why commit:demo-absent || test "$?" -eq 2
     printf '\nConflict — two current outcomes for one subject\n'
-    "$RATIONALE" --database "$DATABASE" --worker "$WORKER" why src/conflict.rs:2 || test "$?" -eq 3
+    "$RATIONALE_BINARY" --database "$DATABASE" --worker "$RATIONALE_WORKER_BINARY" why src/conflict.rs:2 || test "$?" -eq 3
 )
 
 git -C "$DEMO_REPOSITORY" checkout --quiet demo-resolved
 (
     cd "$DEMO_REPOSITORY"
-    "$RATIONALE" --database "$DATABASE" --github-api-base "$API_BASE" sync
+    "$RATIONALE_BINARY" --database "$DATABASE" --github-api-base "$API_BASE" sync
     printf '\nResolved — explicit supersession restores one current outcome\n'
-    "$RATIONALE" --database "$DATABASE" --worker "$WORKER" why src/conflict.rs:2
+    "$RATIONALE_BINARY" --database "$DATABASE" --worker "$RATIONALE_WORKER_BINARY" why src/conflict.rs:2
 )
 
 printf '\nDemo repository retained at %s\n' "$DEMO_REPOSITORY"

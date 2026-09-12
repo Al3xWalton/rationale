@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title description">
+  <title id="title">Rationale established and partial proof results</title>
+  <description id="description">Abridged terminal output showing an explicit evidence chain on the left and a missing relationship with a non-proving candidate on the right.</description>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="1" stop-color="#111a2f"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#020617" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="720" fill="#070b14"/>
+  <rect x="38" y="34" width="1204" height="652" rx="18" fill="url(#background)" stroke="#26324a" filter="url(#shadow)"/>
+  <circle cx="72" cy="68" r="7" fill="#ff6b6b"/>
+  <circle cx="96" cy="68" r="7" fill="#ffd166"/>
+  <circle cx="120" cy="68" r="7" fill="#5ee6a8"/>
+  <text x="640" y="75" text-anchor="middle" fill="#9aa8bf" font-family="SFMono-Regular,Consolas,Liberation Mono,monospace" font-size="15">rationale · deterministic proof demo · abridged</text>
+
+  <rect x="70" y="108" width="554" height="474" rx="12" fill="#0a1222" stroke="#254d43"/>
+  <text x="98" y="145" fill="#5ee6a8" font-family="SFMono-Regular,Consolas,Liberation Mono,monospace" font-size="17" font-weight="700">ESTABLISHED</text>
+  <text x="98" y="184" fill="#dbe7f7" font-family="SFMono-Regular,Consolas,Liberation Mono,monospace" font-size="16">
+    <tspan x="98" dy="0" fill="#8391a7">$</tspan><tspan fill="#dbe7f7"> rationale why src/complete.rs:2</tspan>
+    <tspan x="98" dy="42">Verdict: </tspan><tspan fill="#5ee6a8" font-weight="700">established</tspan>
+    <tspan x="98" dy="38" fill="#8391a7">Proof path</tspan>
+    <tspan x="116" dy="32" fill="#dbe7f7">code:9d1299…</tspan>
+    <tspan x="116" dy="30" fill="#66b8ff">↓ changed_in</tspan>
+    <tspan x="116" dy="30" fill="#dbe7f7">commit:51aab1… → PR-11 → #101</tspan>
+    <tspan x="116" dy="30" fill="#66b8ff">↓ documents</tspan>
+    <tspan x="116" dy="30" fill="#dbe7f7">ADR-0101</tspan>
+    <tspan x="98" dy="44">Gaps: </tspan><tspan fill="#5ee6a8">none</tspan>
+    <tspan x="98" dy="32">Candidates: </tspan><tspan fill="#5ee6a8">none</tspan>
+  </text>
+
+  <rect x="656" y="108" width="554" height="474" rx="12" fill="#0a1222" stroke="#61452c"/>
+  <text x="684" y="145" fill="#ffbd69" font-family="SFMono-Regular,Consolas,Liberation Mono,monospace" font-size="17" font-weight="700">PARTIAL</text>
+  <text x="684" y="184" fill="#dbe7f7" font-family="SFMono-Regular,Consolas,Liberation Mono,monospace" font-size="16">
+    <tspan x="684" dy="0" fill="#8391a7">$</tspan><tspan fill="#dbe7f7"> rationale why src/incomplete.rs:2</tspan>
+    <tspan x="684" dy="42">Verdict: </tspan><tspan fill="#ffbd69" font-weight="700">partial</tspan>
+    <tspan x="684" dy="38" fill="#8391a7">Proof paths</tspan>
+    <tspan x="702" dy="32" fill="#dbe7f7">none</tspan>
+    <tspan x="684" dy="44" fill="#8391a7">Missing relationship</tspan>
+    <tspan x="702" dy="32" fill="#ffbd69">change_to_work_item from PR-22</tspan>
+    <tspan x="684" dy="44" fill="#8391a7">Candidate · suggestion only</tspan>
+    <tspan x="702" dy="32" fill="#dbe7f7">STORY-202 · score 200</tspan>
+    <tspan x="702" dy="30" fill="#8391a7">cannot change the verdict</tspan>
+  </text>
+
+  <line x1="70" y1="618" x2="1210" y2="618" stroke="#26324a"/>
+  <text x="640" y="650" text-anchor="middle" fill="#aab7ca" font-family="SFMono-Regular,Consolas,Liberation Mono,monospace" font-size="15">Rust evidence engine  →  bounded typed slice  →  OCaml proof kernel  →  CLI + MCP</text>
+</svg>

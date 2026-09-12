@@ -2,8 +2,10 @@ OPAM_SWITCH := rationale-5.5.1
 BENCH_SCALE ?= ava-like
 BENCH_SAMPLES ?= 30
 BENCH_OUTPUT ?= benchmarks/results/latest.json
+RELEASE_OUTPUT ?= dist
+RELEASE_TARGET ?= $(shell rustc -vV | sed -n 's/^host: //p')
 
-.PHONY: audit benchmark build demo fmt fuzz-check lint test verify
+.PHONY: audit benchmark build demo fmt fuzz-check lint package release-smoke test verify
 
 audit:
 	cargo deny check
@@ -30,6 +32,14 @@ fuzz-check:
 
 lint:
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+package:
+	opam exec --switch=$(OPAM_SWITCH) -- dune build --root ocaml --profile release @all
+	cargo build --release --locked --bin rationale
+	scripts/package-release.sh $(RELEASE_TARGET) $(RELEASE_OUTPUT)
+
+release-smoke: package
+	scripts/smoke-release.sh $(RELEASE_OUTPUT)/rationale-v0.1.0-$(RELEASE_TARGET).tar.gz
 
 test:
 	opam exec --switch=$(OPAM_SWITCH) -- dune build --root ocaml @all

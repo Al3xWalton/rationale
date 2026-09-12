@@ -2,7 +2,7 @@ opam-version: "2.0"
 synopsis: "Deterministic proof kernel for Rationale"
 maintainer: "Alexander Walton <alexander@walton-i.com>"
 authors: "Alexander Walton <alexander@walton-i.com>"
-license: "LicenseRef-Proprietary"
+license: "Apache-2.0"
 homepage: "https://github.com/Al3xWalton/rationale"
 bug-reports: "https://github.com/Al3xWalton/rationale/issues"
 depends: [
