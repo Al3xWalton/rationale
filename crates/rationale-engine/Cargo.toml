@@ -12,6 +12,7 @@ blake3.workspace = true
 jiff.workspace = true
 rationale-docs = { path = "../rationale-docs" }
 rationale-git = { path = "../rationale-git" }
+rationale-github = { path = "../rationale-github" }
 rationale-model = { path = "../rationale-model" }
 rationale-protocol = { path = "../rationale-protocol" }
 rationale-store = { path = "../rationale-store" }

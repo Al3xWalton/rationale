@@ -268,6 +268,10 @@ fn exit_categories_keep_missing_invalid_and_unavailable_distinct() {
     assert_exit(&invalid, 4);
     assert_eq!(json(&invalid)["error"]["category"], "invalid_input");
 
+    let missing_remote = repository.rationale(&["--database", database, "sync", "--json"]);
+    assert_exit(&missing_remote, 4);
+    assert_eq!(json(&missing_remote)["error"]["category"], "invalid_input");
+
     let unavailable = repository.rationale(&[
         "--database",
         database,

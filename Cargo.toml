@@ -1,5 +1,15 @@
 [workspace]
-members = ["crates/rationale-cli", "crates/rationale-docs", "crates/rationale-engine", "crates/rationale-git", "crates/rationale-mcp", "crates/rationale-model", "crates/rationale-protocol", "crates/rationale-store"]
+members = [
+    "crates/rationale-cli",
+    "crates/rationale-docs",
+    "crates/rationale-engine",
+    "crates/rationale-git",
+    "crates/rationale-github",
+    "crates/rationale-mcp",
+    "crates/rationale-model",
+    "crates/rationale-protocol",
+    "crates/rationale-store",
+]
 resolver = "3"
 
 [workspace.package]
@@ -16,6 +26,7 @@ git2 = "=0.21.0"
 jiff = "=0.2.35"
 jsonschema = { version = "=0.56.0", default-features = false }
 pulldown-cmark = "=0.13.4"
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls"] }
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 rmcp = "=3.3.0"
 schemars = "=1.2.2"

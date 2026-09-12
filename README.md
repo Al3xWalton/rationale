@@ -5,13 +5,13 @@ shows the missing link when it is not.
 
 ## Status
 
-Rationale now has a complete offline proof slice. The Rust CLI synchronizes
-local Git history and namespaced repository documents into an atomic SQLite
-snapshot, resolves real lines through blame and rename-aware history, and asks
-the long-lived OCaml kernel for a canonical established, partial,
-not-established, or conflicted result. Partial and absent proofs include
-auditable non-proving candidate records. GitHub synchronization is still under
-development. The four read-only MCP tools are available over local stdio.
+Rationale now has a complete hybrid proof slice. The Rust CLI synchronizes local
+Git history, namespaced repository documents, and explicit GitHub review
+relationships into an atomic SQLite snapshot. It resolves real lines through
+blame and rename-aware history, then asks the long-lived OCaml kernel for a
+canonical established, partial, not-established, or conflicted result. Partial
+and absent proofs include auditable non-proving candidate records. The four
+read-only MCP tools are available over local stdio.
 
 ## Architecture
 
@@ -26,6 +26,9 @@ development. The four read-only MCP tools are available over local stdio.
   working-copy lines and marks shallow history as incomplete.
 - Document ingestion recognizes configured literal identifiers and quarantines
   malformed metadata without turning nearby files into inferred relationships.
+- GitHub synchronization follows API-native pull-request membership and explicit
+  closing relationships; a failed refresh retains the last valid contribution
+  and marks it stale.
 - Rationale never calls a language model. An external agent may explain its
   structured results without changing their verdicts.
 
@@ -41,7 +44,7 @@ its working tree:
 opam exec --switch=rationale-5.5.1 -- dune build --root ocaml @all
 cargo build --release --bin rationale
 
-./target/release/rationale sync --local
+./target/release/rationale sync
 RATIONALE_KERNEL_WORKER="$PWD/ocaml/_build/default/worker/main.exe" \
   ./target/release/rationale why src/lib.rs:42
 ```
@@ -49,7 +52,7 @@ RATIONALE_KERNEL_WORKER="$PWD/ocaml/_build/default/worker/main.exe" \
 The local commands are:
 
 ```text
-rationale sync --local
+rationale sync [--local]
 rationale why <path:line|path:start-end@revision|commit:revision>
 rationale show <record-id>
 rationale gaps --changed
@@ -72,6 +75,21 @@ prose:
 
 Rationale stores local state under `.rationale/` by default. It ignores that
 directory when reporting changed working-copy gaps.
+
+### GitHub synchronization
+
+`rationale sync` reads the repository's `origin` remote and combines local
+evidence with GitHub issues, pull requests, pull-request commits, and explicit
+closing links. Public repositories need no credential. For private repositories,
+set `GH_TOKEN` or `GITHUB_TOKEN` to a read-only token for the command; Rationale
+uses it only in the request header and never writes it to the database, cursor,
+or error output.
+
+Pagination and request volume are bounded. Conditional requests reuse the last
+published cursor, and rate-limit metadata appears in JSON sync reports. If a
+refresh fails, Rationale publishes current local evidence alongside the last
+valid GitHub contribution with `github:<owner>/<repository>` marked stale. Use
+`rationale sync --local` when network access is unavailable or unwanted.
 
 ### Candidate evidence
 
@@ -118,8 +136,9 @@ MCP client can launch it with configuration shaped like this:
 }
 ```
 
-Run `rationale sync --local` in that repository before the agent queries it.
-MCP success payloads use the same structured result objects as CLI `--json`.
+Run `rationale sync` in that repository before the agent queries it, or
+`rationale sync --local` for an offline-only snapshot. MCP success payloads use
+the same structured result objects as CLI `--json`.
 
 ## Development
 

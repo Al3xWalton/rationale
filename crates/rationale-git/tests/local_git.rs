@@ -136,6 +136,26 @@ fn blame_and_history_cover_initial_and_later_changes() {
 }
 
 #[test]
+fn reads_configured_remote_without_network_access() {
+    let repository = TestRepository::init("remote");
+    repository.git(["remote", "add", "origin", "git@github.com:acme/widget.git"]);
+    let resolver = LocalGitResolver::discover(repository.path()).expect("resolver should open");
+    assert_eq!(
+        resolver
+            .remote_url("origin")
+            .expect("remote configuration should be readable")
+            .as_deref(),
+        Some("git@github.com:acme/widget.git")
+    );
+    assert_eq!(
+        resolver
+            .remote_url("missing")
+            .expect("missing remote should be explicit"),
+        None
+    );
+}
+
+#[test]
 fn working_copy_rejects_new_lines_but_attributes_unchanged_lines() {
     let repository = TestRepository::init("working-copy");
     repository.write("app.txt", "stable\noriginal\n");

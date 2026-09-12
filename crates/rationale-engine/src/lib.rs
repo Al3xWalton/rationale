@@ -13,6 +13,7 @@ use rationale_git::{
     CommitEvidence, GitEvidenceError, GitResolver, LocalGitResolver, ReferenceKind, ResolvedTarget,
     TargetSpec, WorkingChange,
 };
+use rationale_github::{GitHubClient, GitHubError, GitHubRepository, GitHubSyncOutcome, RateLimit};
 use rationale_model::{
     Conflict, EdgeKind, EvidenceEdge, EvidenceNode, KernelRequest, KernelResponse, NodeKind,
     Origin, PROTOCOL_VERSION, ProofGoal, RecordStatus, SourceKind,
@@ -39,6 +40,9 @@ pub enum EngineError {
     /// Local Git target or repository resolution failed.
     #[error(transparent)]
     Git(#[from] GitEvidenceError),
+    /// GitHub remote identification or client setup failed.
+    #[error(transparent)]
+    GitHub(#[from] GitHubError),
     /// SQLite evidence access failed.
     #[error(transparent)]
     Store(#[from] StoreError),
@@ -49,7 +53,7 @@ pub enum EngineError {
     #[error(transparent)]
     ProofUnavailable(#[from] ProofUnavailable),
     /// No evidence has been synchronized yet.
-    #[error("no published evidence snapshot; run `rationale sync --local`")]
+    #[error("no published evidence snapshot; run `rationale sync`")]
     NoSnapshot,
     /// A query is empty or exceeds the supported local contract.
     #[error("invalid query: {detail}")]
@@ -82,6 +86,32 @@ pub struct SyncReport {
     pub quarantined: usize,
     /// Whether the synchronized Git history was complete.
     pub history_complete: bool,
+    /// Source identifiers whose last valid contributions could not be refreshed.
+    pub stale_sources: Vec<String>,
+    /// GitHub rate metadata from the completed synchronization, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_rate_limit: Option<GitHubRateLimitView>,
+}
+
+/// Public, transport-neutral view of GitHub's primary request budget.
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+pub struct GitHubRateLimitView {
+    /// Request ceiling reported by GitHub.
+    pub limit: Option<u64>,
+    /// Most conservative remaining count observed during the synchronization.
+    pub remaining: Option<u64>,
+    /// Unix time at which GitHub reports that the budget resets.
+    pub reset_at: Option<i64>,
+}
+
+impl From<RateLimit> for GitHubRateLimitView {
+    fn from(value: RateLimit) -> Self {
+        Self {
+            limit: value.limit,
+            remaining: value.remaining,
+            reset_at: value.reset_at,
+        }
+    }
 }
 
 /// Auditable components in candidate scoring version 1.
@@ -236,6 +266,121 @@ impl Engine {
     /// Returns `EngineError` for Git, filesystem, normalization, or publication
     /// failures. Malformed individual documents are quarantined in the report.
     pub fn sync_local(&self) -> Result<SyncReport, EngineError> {
+        let local = self.prepare_local_sync()?;
+        let now = jiff::Timestamp::now().to_string();
+        let sources = local_sources(&local, &now);
+        self.publish_evidence(local.evidence, sources, local.history_complete, None)
+    }
+
+    /// Build and atomically publish a combined local and GitHub snapshot.
+    ///
+    /// GitHub failures retain the last valid forge contribution and mark it
+    /// stale. Invalid or missing `origin` configuration remains a caller error.
+    ///
+    /// # Errors
+    ///
+    /// Returns `EngineError` for local inputs, repository configuration, client
+    /// setup, or snapshot publication failures.
+    pub async fn sync(&self) -> Result<SyncReport, EngineError> {
+        let client = GitHubClient::from_environment()?;
+        self.sync_with_github_client(&client).await
+    }
+
+    /// Synchronize with an explicitly configured GitHub client.
+    ///
+    /// This entry point supports hermetic integration tests without weakening
+    /// the default environment-based credential contract.
+    ///
+    /// # Errors
+    ///
+    /// Returns `EngineError` for local inputs, repository configuration, or
+    /// snapshot publication failures. Remote refresh errors become stale state.
+    pub async fn sync_with_github_client(
+        &self,
+        client: &GitHubClient,
+    ) -> Result<SyncReport, EngineError> {
+        let resolver = LocalGitResolver::discover(&self.root)?;
+        let remote = resolver
+            .remote_url("origin")?
+            .ok_or_else(|| GitHubError::InvalidRemote {
+                detail: "repository has no origin remote".to_owned(),
+            })?;
+        let repository = GitHubRepository::from_remote(&remote)?;
+        let source_id = format!("github:{}", repository.slug());
+        let local = self.prepare_local_sync()?;
+        let now = jiff::Timestamp::now().to_string();
+        let mut sources = local_sources(&local, &now);
+        let mut evidence = local.evidence;
+        let prior = self.prior_github_contribution(&source_id)?;
+
+        let outcome = client
+            .synchronize(
+                &repository,
+                prior
+                    .source
+                    .as_ref()
+                    .and_then(|source| source.cursor.as_deref()),
+            )
+            .await;
+        let github_rate_limit = match outcome {
+            Ok(GitHubSyncOutcome::Updated(update)) => {
+                merge_github_evidence(&mut evidence, update.records, update.edges);
+                sources.push(SourceState {
+                    source_id,
+                    source_kind: SourceKind::GitHub,
+                    freshness: Freshness::Fresh,
+                    observed_at: now,
+                    cursor: Some(update.cursor.encode()?),
+                });
+                Some(update.rate_limit.into())
+            }
+            Ok(GitHubSyncOutcome::NotModified { cursor, rate_limit }) => {
+                merge_github_evidence(&mut evidence, prior.records, prior.edges);
+                sources.push(SourceState {
+                    source_id,
+                    source_kind: SourceKind::GitHub,
+                    freshness: Freshness::Fresh,
+                    observed_at: now,
+                    cursor: Some(cursor.encode()?),
+                });
+                Some(rate_limit.into())
+            }
+            Err(_error) => {
+                let had_prior = prior.source.is_some();
+                merge_github_evidence(&mut evidence, prior.records, prior.edges);
+                let prior_source = prior.source;
+                sources.push(SourceState {
+                    source_id: source_id.clone(),
+                    source_kind: SourceKind::GitHub,
+                    freshness: Freshness::Stale,
+                    observed_at: prior_source
+                        .as_ref()
+                        .map_or_else(|| now.clone(), |source| source.observed_at.clone()),
+                    cursor: prior_source.and_then(|source| source.cursor),
+                });
+                evidence.diagnostics.push(IngestDiagnostic {
+                    source_locator: source_id,
+                    code: "github_unavailable".to_owned(),
+                    message: if had_prior {
+                        "GitHub synchronization failed; retained the last valid contribution"
+                            .to_owned()
+                    } else {
+                        "GitHub synchronization failed; no prior contribution was available"
+                            .to_owned()
+                    },
+                });
+                None
+            }
+        };
+        self.publish_evidence(
+            evidence,
+            sources,
+            local.history_complete,
+            github_rate_limit.as_ref(),
+        )
+    }
+
+    fn prepare_local_sync(&self) -> Result<LocalSync, EngineError> {
         let resolver = LocalGitResolver::discover(&self.root)?;
         let history = resolver.commit_history()?;
         let (documents, diagnostics) = collect_documents(&self.root)?;
@@ -244,28 +389,92 @@ impl Engine {
                 path: &document.path,
                 content: &document.content,
             }));
-        let PreparedEvidence {
-            records,
-            edges,
-            conflicts,
-            mut diagnostics,
-        } = prepare_evidence(&history.commits, ingested, diagnostics);
+        let evidence = prepare_evidence(&history.commits, ingested, diagnostics);
+        let head = history
+            .commits
+            .first()
+            .map_or_else(String::new, |commit| commit.id.clone());
+        Ok(LocalSync {
+            evidence,
+            history_complete: history.complete,
+            head,
+            documents_cursor: local_inputs_id(&history.commits, &documents),
+        })
+    }
 
-        let snapshot_id = snapshot_id(&history.commits, &documents);
+    fn prior_github_contribution(
+        &self,
+        source_id: &str,
+    ) -> Result<PriorGitHubContribution, EngineError> {
+        if !self.database_path.is_file() {
+            return Ok(PriorGitHubContribution::default());
+        }
+        let mut store = EvidenceStore::open(&self.database_path)?;
+        let Some(slice) = store.load_current_slice(SliceLimits {
+            max_nodes: 100_000,
+            max_edges: 100_000,
+            max_conflicts: 100_000,
+        })?
+        else {
+            return Ok(PriorGitHubContribution::default());
+        };
+        Ok(PriorGitHubContribution {
+            records: slice
+                .nodes
+                .into_iter()
+                .filter(|node| node.origin.source_kind == SourceKind::GitHub)
+                .collect(),
+            edges: slice
+                .edges
+                .into_iter()
+                .filter(|edge| edge.origin.source_kind == SourceKind::GitHub)
+                .collect(),
+            source: slice
+                .sources
+                .into_iter()
+                .find(|source| source.source_id == source_id),
+        })
+    }
+
+    fn publish_evidence(
+        &self,
+        mut evidence: PreparedEvidence,
+        mut sources: Vec<SourceState>,
+        history_complete: bool,
+        github_rate_limit: Option<&GitHubRateLimitView>,
+    ) -> Result<SyncReport, EngineError> {
+        evidence.diagnostics.sort();
+        evidence.conflicts.sort_by(|left, right| {
+            (&left.left_node_id, &left.right_node_id, &left.rule_id).cmp(&(
+                &right.left_node_id,
+                &right.right_node_id,
+                &right.rule_id,
+            ))
+        });
+        sources.sort_by(|left, right| left.source_id.cmp(&right.source_id));
+        let snapshot_id = evidence_snapshot_id(&evidence, &sources);
+        let stale_sources: Vec<_> = sources
+            .iter()
+            .filter(|source| source.freshness == Freshness::Stale)
+            .map(|source| source.source_id.clone())
+            .collect();
+        let report = |unchanged| SyncReport {
+            snapshot_id: snapshot_id.clone(),
+            unchanged,
+            records: evidence.records.len(),
+            edges: evidence.edges.len(),
+            conflicts: evidence.conflicts.len(),
+            quarantined: evidence.diagnostics.len(),
+            history_complete,
+            stale_sources: stale_sources.clone(),
+            github_rate_limit: github_rate_limit.cloned(),
+        };
         if let Some(parent) = self.database_path.parent() {
             fs::create_dir_all(parent)?;
         }
         let mut store = EvidenceStore::open(&self.database_path)?;
         if store.current_snapshot_id()?.as_deref() == Some(&snapshot_id) {
-            return Ok(SyncReport {
-                snapshot_id,
-                unchanged: true,
-                records: records.len(),
-                edges: edges.len(),
-                conflicts: conflicts.len(),
-                quarantined: diagnostics.len(),
-                history_complete: history.complete,
-            });
+            return Ok(report(true));
         }
 
         let now = jiff::Timestamp::now().to_string();
@@ -273,39 +482,19 @@ impl Engine {
             id: snapshot_id.clone(),
             created_at: now.clone(),
         })?;
-        for record in records.values() {
+        for record in evidence.records.values() {
             candidate.insert_record(record)?;
         }
-        for edge in edges.values() {
+        for edge in evidence.edges.values() {
             candidate.insert_edge(edge)?;
         }
-        for conflict in &conflicts {
+        for conflict in &evidence.conflicts {
             candidate.insert_conflict(conflict)?;
         }
-        let head = history
-            .commits
-            .first()
-            .map_or_else(String::new, |commit| commit.id.clone());
-        for source in [
-            SourceState {
-                source_id: "local-git".to_owned(),
-                source_kind: SourceKind::Git,
-                freshness: Freshness::Fresh,
-                observed_at: now.clone(),
-                cursor: Some(head),
-            },
-            SourceState {
-                source_id: "repository-documents".to_owned(),
-                source_kind: SourceKind::Document,
-                freshness: Freshness::Fresh,
-                observed_at: now.clone(),
-                cursor: Some(snapshot_id.clone()),
-            },
-        ] {
-            candidate.set_source_state(&source)?;
+        for source in &sources {
+            candidate.set_source_state(source)?;
         }
-        diagnostics.sort();
-        for diagnostic in &diagnostics {
+        for diagnostic in &evidence.diagnostics {
             candidate.quarantine(&QuarantineDiagnostic {
                 source_locator: diagnostic.source_locator.clone(),
                 code: diagnostic.code.clone(),
@@ -313,15 +502,7 @@ impl Engine {
             })?;
         }
         candidate.publish(&now)?;
-        Ok(SyncReport {
-            snapshot_id,
-            unchanged: false,
-            records: records.len(),
-            edges: edges.len(),
-            conflicts: conflicts.len(),
-            quarantined: diagnostics.len(),
-            history_complete: history.complete,
-        })
+        Ok(report(false))
     }
 
     /// Resolve a target and evaluate it against the current snapshot.
@@ -487,6 +668,60 @@ struct PreparedEvidence {
     edges: BTreeMap<String, EvidenceEdge>,
     conflicts: Vec<Conflict>,
     diagnostics: Vec<IngestDiagnostic>,
+}
+
+struct LocalSync {
+    evidence: PreparedEvidence,
+    history_complete: bool,
+    head: String,
+    documents_cursor: String,
+}
+
+#[derive(Default)]
+struct PriorGitHubContribution {
+    records: Vec<EvidenceNode>,
+    edges: Vec<EvidenceEdge>,
+    source: Option<SourceState>,
+}
+
+fn local_sources(local: &LocalSync, observed_at: &str) -> Vec<SourceState> {
+    vec![
+        SourceState {
+            source_id: "local-git".to_owned(),
+            source_kind: SourceKind::Git,
+            freshness: if local.history_complete {
+                Freshness::Fresh
+            } else {
+                Freshness::Stale
+            },
+            observed_at: observed_at.to_owned(),
+            cursor: Some(local.head.clone()),
+        },
+        SourceState {
+            source_id: "repository-documents".to_owned(),
+            source_kind: SourceKind::Document,
+            freshness: Freshness::Fresh,
+            observed_at: observed_at.to_owned(),
+            cursor: Some(local.documents_cursor.clone()),
+        },
+    ]
+}
+
+fn merge_github_evidence(
+    evidence: &mut PreparedEvidence,
+    records: Vec<EvidenceNode>,
+    edges: Vec<EvidenceEdge>,
+) {
+    for record in records {
+        evidence.records.entry(record.id.clone()).or_insert(record);
+    }
+    for edge in edges {
+        if evidence.records.contains_key(&edge.source_id)
+            && evidence.records.contains_key(&edge.target_id)
+        {
+            evidence.edges.entry(edge.id.clone()).or_insert(edge);
+        }
+    }
 }
 
 fn prepare_evidence(
@@ -773,9 +1008,9 @@ fn evidence_edge(kind: EdgeKind, source: &str, target: &str, origin: &Origin) ->
     }
 }
 
-fn snapshot_id(commits: &[CommitEvidence], documents: &[OwnedDocument]) -> String {
+fn local_inputs_id(commits: &[CommitEvidence], documents: &[OwnedDocument]) -> String {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"rationale-local-snapshot-v1\0");
+    hasher.update(b"rationale-local-inputs-v1\0");
     for commit in commits {
         hasher.update(commit.id.as_bytes());
         hasher.update(b"\0");
@@ -786,7 +1021,51 @@ fn snapshot_id(commits: &[CommitEvidence], documents: &[OwnedDocument]) -> Strin
         hasher.update(document.content.as_bytes());
         hasher.update(b"\0");
     }
+    format!("inputs:{}", hasher.finalize().to_hex())
+}
+
+fn evidence_snapshot_id(evidence: &PreparedEvidence, sources: &[SourceState]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"rationale-evidence-snapshot-v2\0");
+    for record in evidence.records.values() {
+        hash_json(&mut hasher, record);
+    }
+    for edge in evidence.edges.values() {
+        hash_json(&mut hasher, edge);
+    }
+    for conflict in &evidence.conflicts {
+        hash_json(&mut hasher, conflict);
+    }
+    for diagnostic in &evidence.diagnostics {
+        for field in [
+            &diagnostic.source_locator,
+            &diagnostic.code,
+            &diagnostic.message,
+        ] {
+            hasher.update(field.as_bytes());
+            hasher.update(b"\0");
+        }
+    }
+    for source in sources {
+        hasher.update(source.source_id.as_bytes());
+        hasher.update(b"\0");
+        hash_json(&mut hasher, &source.source_kind);
+        hasher.update(match source.freshness {
+            Freshness::Fresh => b"fresh\0",
+            Freshness::Stale => b"stale\0",
+        });
+        if let Some(cursor) = &source.cursor {
+            hasher.update(cursor.as_bytes());
+        }
+        hasher.update(b"\0");
+    }
     format!("snapshot:{}", hasher.finalize().to_hex())
+}
+
+fn hash_json(hasher: &mut blake3::Hasher, value: &impl Serialize) {
+    let canonical = serde_json::to_vec(value).expect("evidence models must serialize");
+    hasher.update(&canonical);
+    hasher.update(b"\0");
 }
 
 fn query_id(snapshot_id: &str, target: &str) -> String {

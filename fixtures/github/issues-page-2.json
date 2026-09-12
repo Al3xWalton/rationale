@@ -1,0 +1,13 @@
+[
+  {
+    "number": 7,
+    "title": "Implement bounded checkout retry",
+    "body": "Fixes #42",
+    "state": "closed",
+    "html_url": "https://github.com/acme/widget/pull/7",
+    "updated_at": "2026-09-11T10:00:00Z",
+    "pull_request": {
+      "url": "https://api.github.com/repos/acme/widget/pulls/7"
+    }
+  }
+]

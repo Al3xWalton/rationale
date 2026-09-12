@@ -5,7 +5,8 @@ use std::{
 };
 
 use git2::{
-    Blame, BlameOptions, Delta, DiffFindOptions, Oid, Repository, Sort, Status, StatusOptions,
+    Blame, BlameOptions, Delta, DiffFindOptions, ErrorCode, Oid, Repository, Sort, Status,
+    StatusOptions,
 };
 
 use crate::{
@@ -56,6 +57,23 @@ impl LocalGitResolver {
     pub fn with_history_limit(mut self, history_limit: usize) -> Self {
         self.history_limit = history_limit.max(1);
         self
+    }
+
+    /// Read one configured remote URL without invoking Git or the network.
+    ///
+    /// # Errors
+    ///
+    /// Returns `GitEvidenceError` when repository configuration cannot be read.
+    pub fn remote_url(&self, name: &str) -> Result<Option<String>, GitEvidenceError> {
+        match self.repository.find_remote(name) {
+            Ok(remote) => remote
+                .url()
+                .map(str::to_owned)
+                .map(Some)
+                .map_err(|error| git_error(&error)),
+            Err(error) if error.code() == ErrorCode::NotFound => Ok(None),
+            Err(error) => Err(git_error(&error)),
+        }
     }
 
     /// Read bounded topological commit history for local synchronization.

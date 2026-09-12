@@ -30,7 +30,7 @@ enum Commands {
     /// Synchronize explicit evidence sources.
     Sync {
         /// Use only local Git and repository documents.
-        #[arg(long, required = true)]
+        #[arg(long)]
         local: bool,
         /// Emit stable machine-readable JSON.
         #[arg(long)]
@@ -93,33 +93,7 @@ async fn main() -> ExitCode {
 async fn run(cli: Cli) -> Result<u8, EngineError> {
     let engine = Engine::discover(".", cli.database)?.with_worker_path(cli.worker);
     match cli.command {
-        Commands::Sync { local, json } => {
-            debug_assert!(local, "clap requires the local synchronization mode");
-            let report = engine.sync_local()?;
-            if json {
-                print_json(&report);
-            } else {
-                println!("Snapshot: {}", report.snapshot_id);
-                println!(
-                    "Evidence: {} records, {} edges, {} conflicts",
-                    report.records, report.edges, report.conflicts
-                );
-                println!("Quarantined: {}", report.quarantined);
-                println!(
-                    "Status: {}",
-                    if report.unchanged {
-                        "unchanged"
-                    } else {
-                        "published"
-                    }
-                );
-            }
-            Ok(if report.history_complete {
-                EXIT_OK
-            } else {
-                EXIT_STALE
-            })
-        }
+        Commands::Sync { local, json } => run_sync(&engine, local, json).await,
         Commands::Why { target, json } => {
             let result = engine.why(&target).await?;
             if json {
@@ -175,6 +149,49 @@ async fn run(cli: Cli) -> Result<u8, EngineError> {
             Ok(EXIT_OK)
         }
     }
+}
+
+async fn run_sync(engine: &Engine, local: bool, json: bool) -> Result<u8, EngineError> {
+    let report = if local {
+        engine.sync_local()?
+    } else {
+        engine.sync().await?
+    };
+    if json {
+        print_json(&report);
+    } else {
+        println!("Snapshot: {}", report.snapshot_id);
+        println!(
+            "Evidence: {} records, {} edges, {} conflicts",
+            report.records, report.edges, report.conflicts
+        );
+        println!("Quarantined: {}", report.quarantined);
+        if !report.stale_sources.is_empty() {
+            println!("Stale sources: {}", report.stale_sources.join(", "));
+        }
+        if let Some(rate) = &report.github_rate_limit {
+            println!(
+                "GitHub requests: {} remaining of {}",
+                rate.remaining
+                    .map_or_else(|| "unknown".to_owned(), |value| value.to_string()),
+                rate.limit
+                    .map_or_else(|| "unknown".to_owned(), |value| value.to_string())
+            );
+        }
+        println!(
+            "Status: {}",
+            if report.unchanged {
+                "unchanged"
+            } else {
+                "published"
+            }
+        );
+    }
+    Ok(if report.stale_sources.is_empty() {
+        EXIT_OK
+    } else {
+        EXIT_STALE
+    })
 }
 
 fn print_json(value: &impl serde::Serialize) {
@@ -278,7 +295,9 @@ fn why_exit(result: &WhyResult) -> u8 {
 fn error_exit(error: &EngineError) -> u8 {
     match error {
         EngineError::ProofUnavailable(_) => EXIT_PROOF_UNAVAILABLE,
-        EngineError::Git(_) | EngineError::InvalidQuery { .. } => EXIT_INVALID_INPUT,
+        EngineError::Git(_) | EngineError::GitHub(_) | EngineError::InvalidQuery { .. } => {
+            EXIT_INVALID_INPUT
+        }
         EngineError::NoSnapshot => EXIT_MISSING_RATIONALE,
         EngineError::Store(_) | EngineError::Io(_) | EngineError::ScanLimit { .. } => {
             EXIT_OPERATIONAL
