@@ -15,9 +15,11 @@ rationale-git = { path = "../rationale-git" }
 rationale-model = { path = "../rationale-model" }
 rationale-protocol = { path = "../rationale-protocol" }
 rationale-store = { path = "../rationale-store" }
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

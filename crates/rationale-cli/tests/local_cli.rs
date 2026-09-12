@@ -1,12 +1,18 @@
 //! End-to-end coverage for the local CLI and real OCaml proof worker.
 
 use std::{
+    collections::BTreeSet,
     env, fs,
     path::{Path, PathBuf},
     process::{Command, Output},
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use rmcp::{
+    ServiceExt,
+    model::CallToolRequestParams,
+    transport::{ConfigureCommandExt, TokioChildProcess},
+};
 use serde_json::Value;
 
 static NEXT_REPOSITORY: AtomicU64 = AtomicU64::new(0);
@@ -137,6 +143,37 @@ fn assert_exit(output: &Output, expected: i32) {
         "unexpected stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn arguments(value: Value) -> serde_json::Map<String, Value> {
+    let Value::Object(arguments) = value else {
+        panic!("tool arguments should be an object");
+    };
+    arguments
+}
+
+fn assert_read_only_tools(tools: &[rmcp::model::Tool]) {
+    let names: BTreeSet<_> = tools.iter().map(|tool| tool.name.as_ref()).collect();
+    assert_eq!(
+        names,
+        BTreeSet::from([
+            "explain_rationale",
+            "find_rationale_gaps",
+            "get_evidence",
+            "search_candidate_evidence",
+        ])
+    );
+    for tool in tools {
+        assert_eq!(
+            tool.input_schema.get("additionalProperties"),
+            Some(&Value::Bool(false))
+        );
+        assert!(tool.output_schema.is_some());
+        let annotations = tool.annotations.as_ref().expect("annotations should exist");
+        assert_eq!(annotations.read_only_hint, Some(true));
+        assert_eq!(annotations.destructive_hint, Some(false));
+        assert_eq!(annotations.open_world_hint, Some(false));
+    }
 }
 
 #[test]
@@ -322,6 +359,98 @@ rationale:
         after["candidates"][0]["score"],
         serde_json::json!(reconstructed)
     );
+}
+
+#[tokio::test]
+async fn mcp_tools_are_read_only_and_match_cli_json() {
+    let Some(worker) = worker_path() else {
+        eprintln!("skipping cross-language test: RATIONALE_KERNEL_WORKER is unset");
+        return;
+    };
+    let repository = TestRepository::new();
+    repository.commit_evidence();
+    let database = ".rationale/mcp.db";
+    assert_exit(
+        &repository.rationale(&["--database", database, "sync", "--local"]),
+        0,
+    );
+
+    let worker = worker.to_string_lossy().into_owned();
+    let transport = TokioChildProcess::new(
+        tokio::process::Command::new(env!("CARGO_BIN_EXE_rationale")).configure(|command| {
+            command.current_dir(&repository.path).args([
+                "--database",
+                database,
+                "--worker",
+                &worker,
+                "serve",
+            ]);
+        }),
+    )
+    .expect("MCP child process should start");
+    let client = ().serve(transport).await.expect("MCP should initialize");
+
+    let tools = client
+        .list_all_tools()
+        .await
+        .expect("tools should be listed");
+    assert_read_only_tools(&tools);
+
+    let cli_why = repository.rationale(&[
+        "--database",
+        database,
+        "--worker",
+        &worker,
+        "why",
+        "src/app.txt:1",
+        "--json",
+    ]);
+    assert_exit(&cli_why, 0);
+    let mcp_why = client
+        .call_tool(
+            CallToolRequestParams::new("explain_rationale")
+                .with_arguments(arguments(serde_json::json!({ "target": "src/app.txt:1" }))),
+        )
+        .await
+        .expect("explain tool should succeed");
+    assert_eq!(mcp_why.structured_content, Some(json(&cli_why)));
+
+    let cli_record = repository.rationale(&["--database", database, "show", "STORY-1", "--json"]);
+    assert_exit(&cli_record, 0);
+    let mcp_record = client
+        .call_tool(
+            CallToolRequestParams::new("get_evidence")
+                .with_arguments(arguments(serde_json::json!({ "record_id": "STORY-1" }))),
+        )
+        .await
+        .expect("evidence tool should succeed");
+    assert_eq!(mcp_record.structured_content, Some(json(&cli_record)));
+
+    let cli_gaps = repository.rationale(&["--database", database, "gaps", "--changed", "--json"]);
+    assert_exit(&cli_gaps, 0);
+    let mcp_gaps = client
+        .call_tool(
+            CallToolRequestParams::new("find_rationale_gaps")
+                .with_arguments(arguments(serde_json::json!({ "scope": "changed" }))),
+        )
+        .await
+        .expect("gap tool should succeed");
+    assert_eq!(mcp_gaps.structured_content, Some(json(&cli_gaps)));
+
+    let search = client
+        .call_tool(
+            CallToolRequestParams::new("search_candidate_evidence")
+                .with_arguments(arguments(serde_json::json!({ "query": "story 1" }))),
+        )
+        .await
+        .expect("candidate tool should succeed");
+    let search = search
+        .structured_content
+        .expect("candidate tool should return structured content");
+    assert_eq!(search["query"], "story 1");
+    assert_eq!(search["candidates"][0]["record_id"], "STORY-1");
+
+    client.cancel().await.expect("MCP client should shut down");
 }
 
 fn path_string(path: &Path) -> &str {

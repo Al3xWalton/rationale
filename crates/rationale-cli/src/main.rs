@@ -61,6 +61,8 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Serve the read-only local tools over MCP stdio.
+    Serve,
 }
 
 impl Commands {
@@ -70,6 +72,7 @@ impl Commands {
             | Self::Why { json, .. }
             | Self::Show { json, .. }
             | Self::Gaps { json, .. } => *json,
+            Self::Serve => false,
         }
     }
 }
@@ -164,6 +167,12 @@ async fn run(cli: Cli) -> Result<u8, EngineError> {
             } else {
                 EXIT_MISSING_RATIONALE
             })
+        }
+        Commands::Serve => {
+            rationale_mcp::serve(engine)
+                .await
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
+            Ok(EXIT_OK)
         }
     }
 }
@@ -269,7 +278,7 @@ fn why_exit(result: &WhyResult) -> u8 {
 fn error_exit(error: &EngineError) -> u8 {
     match error {
         EngineError::ProofUnavailable(_) => EXIT_PROOF_UNAVAILABLE,
-        EngineError::Git(_) => EXIT_INVALID_INPUT,
+        EngineError::Git(_) | EngineError::InvalidQuery { .. } => EXIT_INVALID_INPUT,
         EngineError::NoSnapshot => EXIT_MISSING_RATIONALE,
         EngineError::Store(_) | EngineError::Io(_) | EngineError::ScanLimit { .. } => {
             EXIT_OPERATIONAL

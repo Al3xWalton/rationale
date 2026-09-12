@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/rationale-cli", "crates/rationale-docs", "crates/rationale-engine", "crates/rationale-git", "crates/rationale-model", "crates/rationale-protocol", "crates/rationale-store"]
+members = ["crates/rationale-cli", "crates/rationale-docs", "crates/rationale-engine", "crates/rationale-git", "crates/rationale-mcp", "crates/rationale-model", "crates/rationale-protocol", "crates/rationale-store"]
 resolver = "3"
 
 [workspace.package]
@@ -17,6 +17,7 @@ jiff = "=0.2.35"
 jsonschema = { version = "=0.56.0", default-features = false }
 pulldown-cmark = "=0.13.4"
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
+rmcp = "=3.3.0"
 schemars = "=1.2.2"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde-saphyr = "=1.2.0"

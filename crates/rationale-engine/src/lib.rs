@@ -5,6 +5,7 @@ use std::{
     fs,
     path::{Component, Path, PathBuf},
     str::FromStr,
+    sync::Arc,
 };
 
 use rationale_docs::{DocumentIngestor, DocumentInput, IngestDiagnostic, IngestResult};
@@ -21,6 +22,7 @@ use rationale_store::{
     CandidateMetadata, EvidenceStore, Freshness, QuarantineDiagnostic, SliceLimits, SourceState,
     StoreError,
 };
+use schemars::JsonSchema;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -49,6 +51,12 @@ pub enum EngineError {
     /// No evidence has been synchronized yet.
     #[error("no published evidence snapshot; run `rationale sync --local`")]
     NoSnapshot,
+    /// A query is empty or exceeds the supported local contract.
+    #[error("invalid query: {detail}")]
+    InvalidQuery {
+        /// Stable validation detail.
+        detail: String,
+    },
     /// Local source scanning exceeded an explicit resource bound.
     #[error("local source scan exceeded {limit} entries")]
     ScanLimit {
@@ -58,7 +66,7 @@ pub enum EngineError {
 }
 
 /// Result of publishing or reusing one local evidence snapshot.
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 pub struct SyncReport {
     /// Content-derived snapshot identifier.
     pub snapshot_id: String,
@@ -77,7 +85,7 @@ pub struct SyncReport {
 }
 
 /// Auditable components in candidate scoring version 1.
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 pub struct CandidateScoreComponents {
     /// Whether the complete query exactly matched the record identifier.
     pub exact_identifier: bool,
@@ -101,7 +109,7 @@ impl CandidateScoreComponents {
 }
 
 /// One ranked suggestion that is never supplied to the proof kernel as a claim.
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 pub struct CandidateView {
     /// Candidate record identifier.
     pub record_id: String,
@@ -116,7 +124,7 @@ pub struct CandidateView {
 }
 
 /// Source freshness rendered with a proof result.
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 pub struct FreshnessView {
     /// Stable source identifier.
     pub source_id: String,
@@ -129,7 +137,7 @@ pub struct FreshnessView {
 }
 
 /// Complete structured answer for a `why` query.
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 pub struct WhyResult {
     /// Normalized user target.
     pub target: String,
@@ -152,7 +160,7 @@ impl WhyResult {
 }
 
 /// One conservative gap for a changed working-copy path.
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
 pub struct ChangedGap {
     /// Repository-relative changed path.
     pub path: String,
@@ -166,6 +174,7 @@ pub struct Engine {
     root: PathBuf,
     database_path: PathBuf,
     worker_path: Option<PathBuf>,
+    worker: Arc<tokio::sync::Mutex<Option<WorkerSupervisor>>>,
 }
 
 impl Engine {
@@ -196,6 +205,7 @@ impl Engine {
             root,
             database_path,
             worker_path: None,
+            worker: Arc::new(tokio::sync::Mutex::new(None)),
         })
     }
 
@@ -203,6 +213,7 @@ impl Engine {
     #[must_use]
     pub fn with_worker_path(mut self, worker_path: Option<PathBuf>) -> Self {
         self.worker_path = worker_path;
+        self.worker = Arc::new(tokio::sync::Mutex::new(None));
         self
     }
 
@@ -359,28 +370,11 @@ impl Engine {
             edges: edges.into_values().collect(),
             conflicts: slice.conflicts,
         };
-        let worker_config = match &self.worker_path {
-            Some(path) => WorkerConfig::new(path),
-            None => WorkerConfig::discover()?,
-        };
-        let supervisor = WorkerSupervisor::start(worker_config).await?;
+        let supervisor = self.proof_worker().await?;
         let response = supervisor.evaluate(request).await?;
         let candidates =
             candidates_for_response(&response, target, &target_evidence, &candidate_records);
-        let freshness = slice
-            .sources
-            .into_iter()
-            .map(|source| FreshnessView {
-                source_id: source.source_id,
-                source_kind: source.source_kind,
-                freshness: match source.freshness {
-                    Freshness::Fresh => "fresh",
-                    Freshness::Stale => "stale",
-                }
-                .to_owned(),
-                observed_at: source.observed_at,
-            })
-            .collect();
+        let freshness = freshness_views(slice.sources);
         Ok(WhyResult {
             target: target.to_owned(),
             response,
@@ -402,6 +396,46 @@ impl Engine {
         Ok(store.current_record(record_id)?)
     }
 
+    /// Rank current candidate records for an explicit user query.
+    ///
+    /// # Errors
+    ///
+    /// Returns `EngineError` for an empty query, missing snapshot, or storage
+    /// failure.
+    pub fn search_candidates(&self, query: &str) -> Result<CandidateSearchResult, EngineError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Err(EngineError::InvalidQuery {
+                detail: "candidate query must not be empty".to_owned(),
+            });
+        }
+        if !self.database_path.is_file() {
+            return Err(EngineError::NoSnapshot);
+        }
+        let mut store = EvidenceStore::open(&self.database_path)?;
+        let slice = store
+            .load_current_slice(SliceLimits {
+                max_nodes: 4_000,
+                max_edges: 16_384,
+                max_conflicts: 4_096,
+            })?
+            .ok_or(EngineError::NoSnapshot)?;
+        let candidates = rank_candidates(
+            CandidateQuery {
+                exact: query,
+                text: query,
+                path: None,
+            },
+            &slice.nodes,
+            &BTreeSet::new(),
+        );
+        Ok(CandidateSearchResult {
+            query: query.to_owned(),
+            candidates,
+            freshness: freshness_views(slice.sources),
+        })
+    }
+
     /// Report changed paths as explicit working-copy attribution gaps.
     ///
     /// # Errors
@@ -415,6 +449,31 @@ impl Engine {
             .map(changed_gap)
             .collect())
     }
+
+    async fn proof_worker(&self) -> Result<WorkerSupervisor, EngineError> {
+        let mut worker = self.worker.lock().await;
+        if let Some(supervisor) = worker.as_ref() {
+            return Ok(supervisor.clone());
+        }
+        let worker_config = match &self.worker_path {
+            Some(path) => WorkerConfig::new(path),
+            None => WorkerConfig::discover()?,
+        };
+        let supervisor = WorkerSupervisor::start(worker_config).await?;
+        *worker = Some(supervisor.clone());
+        Ok(supervisor)
+    }
+}
+
+/// Structured result of a candidate-only search.
+#[derive(Clone, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+pub struct CandidateSearchResult {
+    /// Normalized non-empty user query.
+    pub query: String,
+    /// Deterministically ranked suggestions.
+    pub candidates: Vec<CandidateView>,
+    /// Source state for the snapshot searched.
+    pub freshness: Vec<FreshnessView>,
 }
 
 #[derive(Clone, Debug)]
@@ -747,6 +806,22 @@ fn changed_gap(change: WorkingChange) -> ChangedGap {
         path: change.path,
         code: code.to_owned(),
     }
+}
+
+fn freshness_views(sources: Vec<SourceState>) -> Vec<FreshnessView> {
+    sources
+        .into_iter()
+        .map(|source| FreshnessView {
+            source_id: source.source_id,
+            source_kind: source.source_kind,
+            freshness: match source.freshness {
+                Freshness::Fresh => "fresh",
+                Freshness::Stale => "stale",
+            }
+            .to_owned(),
+            observed_at: source.observed_at,
+        })
+        .collect()
 }
 
 fn candidates_for_response(

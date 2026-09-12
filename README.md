@@ -10,8 +10,8 @@ local Git history and namespaced repository documents into an atomic SQLite
 snapshot, resolves real lines through blame and rename-aware history, and asks
 the long-lived OCaml kernel for a canonical established, partial,
 not-established, or conflicted result. Partial and absent proofs include
-auditable non-proving candidate records. GitHub synchronization and the MCP
-surface are still under development.
+auditable non-proving candidate records. GitHub synchronization is still under
+development. The four read-only MCP tools are available over local stdio.
 
 ## Architecture
 
@@ -85,6 +85,41 @@ reconstruct the total.
 Candidate scores and candidate designations are suggestions, not evidence
 relationships: neither enters a kernel request or proof path, and selecting or
 omitting a suggestion cannot promote a verdict.
+
+## Agent integration
+
+`rationale serve` exposes four read-only MCP tools over stdio:
+
+- `explain_rationale(target)` returns the canonical proof, gaps, candidates,
+  and freshness;
+- `get_evidence(record_id)` returns a normalized record with its citation;
+- `find_rationale_gaps(scope)` reports conservative changed-path gaps;
+- `search_candidate_evidence(query)` ranks suggestions without creating proof
+  relationships.
+
+The server performs no model sampling and exposes no mutation tools. A local
+MCP client can launch it with configuration shaped like this:
+
+```json
+{
+  "mcpServers": {
+    "rationale": {
+      "command": "/absolute/path/to/rationale",
+      "args": [
+        "--database",
+        ".rationale/rationale.db",
+        "--worker",
+        "/absolute/path/to/rationale-kernel-worker",
+        "serve"
+      ],
+      "cwd": "/absolute/path/to/your/repository"
+    }
+  }
+}
+```
+
+Run `rationale sync --local` in that repository before the agent queries it.
+MCP success payloads use the same structured result objects as CLI `--json`.
 
 ## Development
 
