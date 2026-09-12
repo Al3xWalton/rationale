@@ -1,0 +1,20 @@
+[package]
+name = "rationale-docs"
+description = "Conservative document and verification ingestion for Rationale"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+blake3.workspace = true
+pulldown-cmark.workspace = true
+rationale-model = { path = "../rationale-model" }
+serde.workspace = true
+serde-saphyr.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

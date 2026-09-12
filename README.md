@@ -10,7 +10,9 @@ long-lived OCaml kernel and evaluate bounded synthetic evidence into canonical
 established, partial, not-established, or conflicted results. Repository
 evidence can also be published as atomic immutable SQLite snapshots. Repository
 line targets can be resolved into explicit local Git blame and rename-aware
-history. Document ingestion, CLI, and MCP surfaces are still under development.
+history. Namespaced repository documents and verification manifests can supply
+explicit decisions and relationships. The CLI and MCP surfaces are still under
+development.
 
 ## Architecture
 
@@ -23,6 +25,8 @@ history. Document ingestion, CLI, and MCP surfaces are still under development.
   proof readers, even while the next synchronization is being assembled.
 - Local Git resolution distinguishes committed evidence from unattributed
   working-copy lines and marks shallow history as incomplete.
+- Document ingestion recognizes configured literal identifiers and quarantines
+  malformed metadata without turning nearby files into inferred relationships.
 - Rationale never calls a language model. An external agent may explain its
   structured results without changing their verdicts.
 

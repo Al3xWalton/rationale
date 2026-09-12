@@ -12,6 +12,11 @@ Local Git targets must be normalized repository-relative paths. Absolute paths,
 parent traversal, Git-internal paths, and symlinks that escape the discovered
 worktree are rejected before content or history is read.
 
+Document inputs are size-bounded and only metadata under the `rationale`
+namespace can create proof relationships. Quarantine diagnostics use stable
+parser reasons and source locators; raw source fragments are not copied into
+diagnostic messages.
+
 Do not report suspected vulnerabilities in a public issue. Until a private
 security contact is published, keep reports private and do not include live
 credentials, private repository contents, or exploit data in test fixtures.
